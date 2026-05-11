@@ -89,9 +89,11 @@ function buildSummary(out) {
     const target = groups[prefix] || groups.other;
     target[k] = v;
   }
-  const statsSec = document.createElement("div");
+  const statsSec = document.createElement("details");
   statsSec.className = "result-section";
-  const sh = document.createElement("h4"); sh.textContent = "Stats by category"; statsSec.appendChild(sh);
+  const sh = document.createElement("summary");
+  sh.textContent = "Stats by category";
+  statsSec.appendChild(sh);
   for (const [name, obj] of Object.entries(groups)) {
     const keys = Object.keys(obj);
     if (!keys.length) continue;
@@ -268,6 +270,22 @@ function setupRunControls() {
   $("#opt-rotations").checked = !!s.tryAllRotations;
   $("#opt-minpoints").checked = !!s.minimizePoints;
   if ($("#opt-algorithm")) $("#opt-algorithm").value = s.algorithm || "steiner";
+
+  const algoEl = $("#opt-algorithm");
+  if (algoEl) {
+    const reflectMode = () => {
+      const mode = algoEl.value;
+      document.body.dataset.algo = mode;
+      const hint = $("#opt-mode-hint");
+      if (hint) {
+        hint.textContent = mode === "sa"
+          ? "SA explores routes via simulated annealing to maximize your damage formula within the budget. Configure stat weights in the Damage Formula tab."
+          : "Steiner picks the minimum cells that include every required node you marked. Budget caps the route — extras are dropped in order magic → rare → socket → legendary.";
+      }
+    };
+    algoEl.addEventListener("change", reflectMode);
+    reflectMode();
+  }
 }
 
 function setupDataTab() {
