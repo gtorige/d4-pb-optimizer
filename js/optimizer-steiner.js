@@ -224,9 +224,11 @@ export function optimizeSteiner(state) {
     perBoardCounts,
     activeBoards,
     infeasibleBoards,
+    missingRequired: 0,
     score: -totalPoints, // for compatibility with display
     stats: collectStats(state, slots, activated),
     rotations: state.chain.map(s => s.rotation || 0),
+    order: state.chain.map(s => s.boardIndex),
     ctx: {
       chain: state.chain,
       idx: slots.map(s => ({
