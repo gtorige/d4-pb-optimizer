@@ -127,14 +127,26 @@
     <!-- Optimize tab -->
     <section id="tab-optimize" class="tab-panel">
       <h2>Optimize</h2>
+      <p class="hint">
+        <strong>Steiner mode (default)</strong>: includes every selected rare / magic / legendary node
+        and pinned glyph socket using the minimum number of paragon points. Budget is informational —
+        the route uses only what's needed. <strong>SA mode</strong>: legacy heuristic that maximizes
+        damage formula within budget; choose this if you also want a damage-formula-driven build.
+      </p>
       <div class="run-config">
-        <label>Total paragon points: <input id="point-budget" type="number" min="1" value="225" /></label>
+        <label>Algorithm:
+          <select id="opt-algorithm">
+            <option value="steiner" selected>Steiner (exact, minimize points)</option>
+            <option value="sa">SA (heuristic, damage formula)</option>
+          </select>
+        </label>
+        <label>Total paragon points (informational in Steiner): <input id="point-budget" type="number" min="1" value="225" /></label>
         <label>Glyph radius (cells): <input id="glyph-radius" type="number" min="1" value="4" /></label>
         <label>SA iterations: <input id="sa-iter" type="number" min="1000" value="40000" step="1000" /></label>
         <label>Start temp: <input id="sa-temp" type="number" min="0" value="2" step="0.1" /></label>
         <label>Seed: <input id="sa-seed" type="number" value="1" /></label>
         <label><input id="opt-rotations" type="checkbox" /> Try rotations</label>
-        <label><input id="opt-minpoints" type="checkbox" /> Minimize points</label>
+        <label><input id="opt-minpoints" type="checkbox" /> Minimize points (SA only)</label>
         <button id="run-optimize">Run optimizer</button>
         <button id="stop-optimize" disabled>Stop</button>
       </div>

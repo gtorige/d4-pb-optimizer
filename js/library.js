@@ -43,16 +43,23 @@ export function listBoards(className) {
   return cls ? Object.keys(cls.boards || {}) : [];
 }
 
-/** List of glyphs available (we use the Barbarian list as the union — they're shared). */
+/** List of glyphs available across the bundled dataset. Glyphs in the d4data
+ *  dump are stored under Generic.glyphs (they're class-shared at the data
+ *  layer); fall back to scanning any class bucket if Generic is empty. */
 export function listGlyphs() {
-  // Glyphs are duplicated across classes in the dataset; pick whichever class has the most.
-  let best = null, bestN = -1;
-  for (const cls of classes()) {
-    const n = Object.keys(_dataset[cls].glyphs || {}).length;
-    if (n > bestN) { bestN = n; best = cls; }
+  const sources = ["Generic", ...classes()];
+  const seen = new Set();
+  const out = [];
+  for (const cls of sources) {
+    const map = _dataset[cls]?.glyphs;
+    if (!map) continue;
+    for (const [id, g] of Object.entries(map)) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push({ id, ...g });
+    }
   }
-  if (!best) return [];
-  return Object.entries(_dataset[best].glyphs).map(([id, g]) => ({ id, ...g }));
+  return out;
 }
 
 /** Resolve a node id to its display info (name + desc) by checking class + Generic. */
@@ -112,8 +119,9 @@ export function importBoard(className, boardName) {
  *  We default to a single per-magic-node stat using the glyph id as key,
  *  so users can weight it via the damage buckets. */
 export function importGlyph(glyphId) {
-  for (const cls of classes()) {
-    const g = _dataset[cls].glyphs?.[glyphId];
+  const sources = ["Generic", ...classes()];
+  for (const cls of sources) {
+    const g = _dataset[cls]?.glyphs?.[glyphId];
     if (!g) continue;
     return {
       id: "lib_" + glyphId,
@@ -121,6 +129,8 @@ export function importGlyph(glyphId) {
       desc: g.desc,
       bonus: g.bonus,
       threshold: g.threshold,
+      rarity: g.rarity,
+      radius: g.radius,
       baseStats: { ["glyph_" + glyphId + "_base"]: 1 },
       perMagicStats: { ["glyph_" + glyphId]: 1 },
     };
