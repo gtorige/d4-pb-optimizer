@@ -106,6 +106,14 @@ function renderGlyphCards() {
     const title = document.createElement("h4");
     title.textContent = g.name;
     card.appendChild(title);
+    if (g.rarity || g.radius) {
+      const meta = document.createElement("div"); meta.className = "hint";
+      const parts = [];
+      if (g.rarity) parts.push(g.rarity);
+      if (g.radius) parts.push("radius " + g.radius);
+      meta.textContent = parts.join(" · ");
+      card.appendChild(meta);
+    }
     if (g.threshold) {
       const t = document.createElement("div"); t.className = "hint";
       t.textContent = "Threshold: " + g.threshold;
@@ -397,7 +405,11 @@ function renderSelectedGlyphs() {
   }
   s.glyphs.forEach((g, i) => {
     const li = document.createElement("li");
-    li.textContent = g.name + (g.threshold ? "  — thr: " + g.threshold : "");
+    const parts = [g.name];
+    if (g.rarity) parts.push(g.rarity);
+    if (g.radius) parts.push("r=" + g.radius);
+    if (g.threshold) parts.push(g.threshold);
+    li.textContent = parts.join(" · ");
     const rm = btn("✕", () => setState(st => ({ ...st, glyphs: st.glyphs.filter((_, j) => j !== i) })));
     rm.style.marginLeft = "8px";
     li.appendChild(rm);

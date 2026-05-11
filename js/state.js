@@ -90,6 +90,7 @@ export function defaultState() {
     glyphRadius: 4,
     tryAllRotations: true,
     minimizePoints: false,
+    algorithm: "steiner",
     selection: { boardIndex: 0, cell: null, glyphId: null },
   };
 }
@@ -137,6 +138,7 @@ export function migrate(s) {
   });
   if (!out.chain.length) out.chain = [defaultChainSlot(0)];
   if (typeof out.tryAllRotations !== "boolean") out.tryAllRotations = base.tryAllRotations;
+  if (out.algorithm !== "steiner" && out.algorithm !== "sa") out.algorithm = base.algorithm;
   // Force-replace buckets whenever we ship a new defaultBuckets() generation,
   // or when the existing buckets look broken (legacy stat names). This is the
   // primary way returning users get an optimizer that actually maximizes

@@ -4,6 +4,7 @@ import * as glyphs from "./glyph-editor.js";
 import * as damage from "./damage.js";
 import * as library from "./library-ui.js";
 import { optimize } from "./solver.js";
+import { optimizeSteiner } from "./optimizer-steiner.js";
 import { rotateBoard } from "./rotation.js";
 
 const $ = (s) => document.querySelector(s);
@@ -35,6 +36,7 @@ async function runOptimize() {
     glyphRadius: parseInt($("#glyph-radius").value, 10) || 1,
     tryAllRotations: $("#opt-rotations").checked,
     minimizePoints: $("#opt-minpoints").checked,
+    algorithm: $("#opt-algorithm")?.value || "steiner",
   }));
 
   $("#run-optimize").disabled = true;
@@ -42,7 +44,18 @@ async function runOptimize() {
   stopRequested = false;
 
   try {
-    const out = await optimize(getState(), {
+    const st = getState();
+    if (st.algorithm === "steiner") {
+      status.textContent = "Running Steiner Tree (exact)…";
+      const t0 = performance.now();
+      const out = optimizeSteiner(st);
+      const dt = (performance.now() - t0).toFixed(0);
+      status.textContent = `Steiner: ${out.totalPoints} cells across ${out.activeBoards.length}/${st.chain.length} boards (${dt} ms)` +
+        (out.infeasibleBoards.length ? ` — infeasible: boards ${out.infeasibleBoards.map(i => i + 1).join(", ")}` : "");
+      renderResult(out);
+      return;
+    }
+    const out = await optimize(st, {
       iterations: parseInt($("#sa-iter").value, 10) || 20000,
       startTemp: parseFloat($("#sa-temp").value) || 1,
       seed: parseInt($("#sa-seed").value, 10) || 1,
@@ -238,6 +251,7 @@ function setupRunControls() {
   $("#glyph-radius").value = s.glyphRadius;
   $("#opt-rotations").checked = !!s.tryAllRotations;
   $("#opt-minpoints").checked = !!s.minimizePoints;
+  if ($("#opt-algorithm")) $("#opt-algorithm").value = s.algorithm || "steiner";
 }
 
 function setupDataTab() {
