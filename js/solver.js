@@ -189,6 +189,29 @@ function totalStats(solution, ctx) {
   return stats;
 }
 
+/** Count how many boards from the chain root are contiguously chained:
+ *  board 0 is active iff it has any activation; each subsequent board needs the
+ *  prior board to have a gate activated and itself to have a gate activated. */
+function countActiveBoards(solution, ctx) {
+  let n = 0;
+  for (let bi = 0; bi < ctx.chain.length; bi++) {
+    const act = solution.activated[bi];
+    if (!act || act.size === 0) break;
+    if (bi > 0) {
+      const prevIdx = ctx.idx[bi - 1];
+      const prev = solution.activated[bi - 1];
+      let prevHasGate = false;
+      for (const g of prevIdx.gateKeys) if (prev.has(g)) { prevHasGate = true; break; }
+      if (!prevHasGate) break;
+      let curHasGate = false;
+      for (const g of ctx.idx[bi].gateKeys) if (act.has(g)) { curHasGate = true; break; }
+      if (!curHasGate) break;
+    }
+    n++;
+  }
+  return n;
+}
+
 function score(solution, ctx) {
   const stats = totalStats(solution, ctx);
   let s = evaluate(stats, ctx.buckets, ctx.baseValue);
@@ -202,9 +225,12 @@ function score(solution, ctx) {
     for (const k of req) if (!act.has(k)) missing++;
   }
   if (missing) s -= 1e9 * missing;
-  // Small per-point penalty so among ties the solver prefers the shorter route.
-  // Tuned to be smaller than typical per-bucket damage gains but big enough to
-  // break ties when the user has selected specific nodes.
+  // Chain bonus: reward each contiguously-chained board. With minimize-points,
+  // this outweighs the per-point cost of bridging through a board, so the SA
+  // can't strip the route down to just the start cell — it has to keep the
+  // boards connected.
+  if (ctx.chainBonus) s += ctx.chainBonus * countActiveBoards(solution, ctx);
+  // Per-point penalty so the solver prefers shorter routes when configured.
   if (ctx.pointPenalty) s -= ctx.pointPenalty * totalPoints(solution);
   return s;
 }
@@ -215,12 +241,51 @@ function totalPoints(solution) {
   return n;
 }
 
+/** Shortest path between two specific keys through activatable cells. */
+function bfsKeyToKey(start, goal, idx) {
+  if (start === goal) return [start];
+  const prev = new Map([[start, null]]);
+  const queue = [start];
+  while (queue.length) {
+    const k = queue.shift();
+    if (k === goal) {
+      const path = [];
+      for (let c = k; c != null; c = prev.get(c)) path.push(c);
+      return path.reverse();
+    }
+    for (const n of neighbors(k, idx.size)) {
+      if (prev.has(n)) continue;
+      if (!idx.types.has(n)) continue;
+      prev.set(n, k);
+      queue.push(n);
+    }
+  }
+  return null;
+}
+
 function initialSolution(ctx) {
   const activated = ctx.chain.map(() => new Set());
   const glyphs = ctx.chain.map(() => null);
   const glyphSocket = ctx.chain.map(() => null);
-  const entry0 = ctx.idx[0].startKey || ctx.idx[0].gateKeys[0];
-  if (entry0) activated[0].add(entry0);
+  // Seed a chained route through all boards: board 0 = start -> nearest gate;
+  // boards 1..N-2 = one gate -> a different gate; board N-1 = just a gate.
+  // This gives the SA a feasible starting point so it can shrink/refine from a
+  // valid chain rather than try to climb out of a 1-cell local optimum.
+  for (let bi = 0; bi < ctx.chain.length; bi++) {
+    const idx = ctx.idx[bi];
+    const entry = bi === 0 ? (idx.startKey || idx.gateKeys[0]) : idx.gateKeys[0];
+    if (!entry) continue;
+    activated[bi].add(entry);
+    const isLast = bi === ctx.chain.length - 1;
+    if (!isLast) {
+      // Pick a different gate as the exit (any other gate works).
+      const exitGate = idx.gateKeys.find(g => g !== entry) || idx.gateKeys[0];
+      if (exitGate && exitGate !== entry) {
+        const path = bfsKeyToKey(entry, exitGate, idx);
+        if (path) for (const k of path) activated[bi].add(k);
+      }
+    }
+  }
   // Place pinned glyphs first; then fill remaining slots from the leftover pool.
   const pinned = ctx.chain.map(s => (s && s.pinnedGlyph) || null);
   const used = new Set(pinned.filter(Boolean));
@@ -520,6 +585,13 @@ export async function optimize(state, opts) {
   const pointPenalty = state.minimizePoints
     ? Math.max(10, Math.abs(state.baseValue || 100) * 0.5)
     : (anyRequired ? 0.05 : 0);
+  // Chain bonus must dominate the per-point cost of bridging a board (~12
+  // cells × pointPenalty) so minimize-mode can't strip the chain. In normal
+  // mode it acts as a tie-breaker that nudges the SA toward keeping boards
+  // chained even though damage stats on orphan boards still count.
+  const chainBonus = state.minimizePoints
+    ? Math.max(pointPenalty * 30, Math.abs(state.baseValue || 100) * 2)
+    : Math.abs(state.baseValue || 100);
   const ctx = {
     chain: state.chain.map(s => ({ ...s, filters: { ...s.filters, nodeOverrides: { ...(s.filters?.nodeOverrides || {}) } } })),
     boards: state.boards,
@@ -531,6 +603,7 @@ export async function optimize(state, opts) {
     glyphRadius: state.glyphRadius,
     tryAllRotations: !!state.tryAllRotations,
     pointPenalty,
+    chainBonus,
   };
 
   if (ctx.chain.length === 0) throw new Error("Empty chain.");
