@@ -189,23 +189,33 @@ function totalStats(solution, ctx) {
   return stats;
 }
 
-/** Count how many boards from the chain root are contiguously chained:
- *  board 0 is active iff it has any activation; each subsequent board needs the
- *  prior board to have a gate activated and itself to have a gate activated. */
+/** Count how many boards from the chain root are properly chained.
+ *  Board 0: needs to have its start (or its first gate) activated, AND for the
+ *  chain to continue, an additional gate cell distinct from the entry.
+ *  Intermediate boards (0 < bi < N-1): need ≥2 different activated gates
+ *  (entry from prev board + exit to next board) — the activated cells form a
+ *  connected component so a path between them exists implicitly.
+ *  Last board: needs ≥1 activated gate (entry only). */
 function countActiveBoards(solution, ctx) {
+  const N = ctx.chain.length;
   let n = 0;
-  for (let bi = 0; bi < ctx.chain.length; bi++) {
+  for (let bi = 0; bi < N; bi++) {
     const act = solution.activated[bi];
     if (!act || act.size === 0) break;
-    if (bi > 0) {
-      const prevIdx = ctx.idx[bi - 1];
-      const prev = solution.activated[bi - 1];
-      let prevHasGate = false;
-      for (const g of prevIdx.gateKeys) if (prev.has(g)) { prevHasGate = true; break; }
-      if (!prevHasGate) break;
-      let curHasGate = false;
-      for (const g of ctx.idx[bi].gateKeys) if (act.has(g)) { curHasGate = true; break; }
-      if (!curHasGate) break;
+    const idx = ctx.idx[bi];
+    const isLast = bi === N - 1;
+    // Number of activated gates on this board.
+    let gates = 0;
+    for (const g of idx.gateKeys) if (act.has(g)) gates++;
+
+    if (bi === 0) {
+      // First board: chain continues only if at least one gate is activated.
+      if (!isLast && gates < 1) break;
+    } else {
+      // Need an entry gate from the previous board.
+      if (gates < 1) break;
+      // Intermediate boards must also have a distinct exit gate.
+      if (!isLast && gates < 2) break;
     }
     n++;
   }

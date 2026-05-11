@@ -48,6 +48,33 @@ export function defaultStatsFromId(id) {
   return { [k]: 1 };
 }
 
+/** Derive a friendlier display label from a raw node id.
+ *  e.g. "Generic_Magic_DamagePhysical" -> "Damage Physical (magic)"
+ *       "Barbarian_Legendary_002"      -> "Barbarian Legendary 002"
+ *       "Generic_Normal_Str"           -> "Strength"
+ *       "StartNodeBarb"                -> "Start (Barb)"
+ */
+export function deriveLabel(id) {
+  if (!id) return "";
+  if (id.startsWith("StartNode")) return "Start (" + id.slice(9) + ")";
+  if (id === "Generic_Gate") return "Gate";
+  if (id === "Generic_Socket") return "Glyph socket";
+  const parts = id.split("_");
+  // Class_Tier_Rest  (or Generic_Tier_Rest)
+  if (parts.length >= 3) {
+    const klass = parts[0];
+    const tier = parts[1];
+    const rest = parts.slice(2).join(" ");
+    const attrMap = { Str: "Strength", Dex: "Dexterity", Int: "Intelligence", Will: "Willpower" };
+    if (tier === "Normal" && attrMap[rest]) return attrMap[rest];
+    // Insert spaces in camelCase: "DamageToVulnerable" -> "Damage To Vulnerable"
+    const spaced = rest.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
+    if (klass === "Generic") return `${spaced} (${tier.toLowerCase()})`;
+    return `${klass} ${tier} ${spaced}`;
+  }
+  return id;
+}
+
 /** Gate direction from row/col on a 21-wide board (edges only). */
 export function inferGateDir(r, c, size) {
   if (r === 0) return "N";
