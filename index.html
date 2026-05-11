@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>D4 Paragon Optimizer</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Diablo 4 Paragon Optimizer</h1>
+    <nav>
+      <button data-tab="boards" class="tab active">Boards</button>
+      <button data-tab="glyphs" class="tab">Glyphs</button>
+      <button data-tab="formula" class="tab">Damage Formula</button>
+      <button data-tab="optimize" class="tab">Optimize</button>
+      <button data-tab="data" class="tab">Save / Load</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Boards tab -->
+    <section id="tab-boards" class="tab-panel active">
+      <aside class="sidebar">
+        <h2>Boards</h2>
+        <ul id="board-list"></ul>
+        <button id="add-board">+ Add board</button>
+        <hr />
+        <h3>Chain</h3>
+        <p class="hint">Drag boards to reorder. Board 1 is the starter (entry at bottom gate).</p>
+        <ol id="board-chain"></ol>
+        <hr />
+        <h3>Paint mode</h3>
+        <div id="paint-palette">
+          <label><input type="radio" name="paint" value="empty" /> Empty</label>
+          <label><input type="radio" name="paint" value="normal" checked /> Normal</label>
+          <label><input type="radio" name="paint" value="magic" /> Magic</label>
+          <label><input type="radio" name="paint" value="rare" /> Rare</label>
+          <label><input type="radio" name="paint" value="legendary" /> Legendary</label>
+          <label><input type="radio" name="paint" value="socket" /> Glyph socket</label>
+          <label><input type="radio" name="paint" value="gate" /> Gate (N/E/S/W)</label>
+          <label><input type="radio" name="paint" value="start" /> Start node</label>
+        </div>
+      </aside>
+
+      <div class="board-area">
+        <div class="board-meta">
+          <label>Name: <input id="board-name" type="text" /></label>
+          <label>Grid: <input id="board-size" type="number" min="5" max="31" value="21" /></label>
+          <button id="clear-board">Clear board</button>
+        </div>
+        <div id="board-grid-host"></div>
+        <div class="board-stats">
+          <h3>Selected node</h3>
+          <div id="node-editor"><em>Click a node to edit its stats.</em></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Glyphs tab -->
+    <section id="tab-glyphs" class="tab-panel">
+      <h2>Glyphs</h2>
+      <p class="hint">Glyphs are placed in sockets. Their bonus scales with the number of <em>magic</em> nodes activated within their radius.</p>
+      <button id="add-glyph">+ Add glyph</button>
+      <div id="glyph-list"></div>
+    </section>
+
+    <!-- Damage formula tab -->
+    <section id="tab-formula" class="tab-panel">
+      <h2>Damage Formula</h2>
+      <p class="hint">Stats accumulated by activated nodes (and glyph bonuses) are summed per bucket. Final score = base &times; product of (1 + bucket_total) over all buckets. Use weights to scale stat contributions.</p>
+      <button id="add-bucket">+ Add bucket</button>
+      <div id="bucket-list"></div>
+      <hr />
+      <h3>Base value</h3>
+      <input id="base-value" type="number" value="100" step="any" />
+    </section>
+
+    <!-- Optimize tab -->
+    <section id="tab-optimize" class="tab-panel">
+      <h2>Optimize</h2>
+      <div class="run-config">
+        <label>Total paragon points: <input id="point-budget" type="number" min="1" value="225" /></label>
+        <label>Glyph radius (cells): <input id="glyph-radius" type="number" min="1" value="4" /></label>
+        <label>SA iterations: <input id="sa-iter" type="number" min="1000" value="40000" step="1000" /></label>
+        <label>Start temp: <input id="sa-temp" type="number" min="0" value="2" step="0.1" /></label>
+        <label>Seed: <input id="sa-seed" type="number" value="1" /></label>
+        <button id="run-optimize">Run optimizer</button>
+        <button id="stop-optimize" disabled>Stop</button>
+      </div>
+      <div id="run-status"></div>
+      <div id="run-result"></div>
+    </section>
+
+    <!-- Save / Load tab -->
+    <section id="tab-data" class="tab-panel">
+      <h2>Save / Load</h2>
+      <p class="hint">All data is stored locally in your browser. Use export / import to share.</p>
+      <button id="export-json">Export JSON</button>
+      <button id="import-json">Import JSON</button>
+      <input id="import-file" type="file" accept="application/json" hidden />
+      <button id="reset-all">Reset all</button>
+      <pre id="json-preview"></pre>
+    </section>
+  </main>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
