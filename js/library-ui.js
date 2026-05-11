@@ -143,6 +143,9 @@ function addGlyph(libGlyphId) {
   });
 }
 
+// Track which chain slots have their node panel expanded (UI-only).
+const nodePanelOpen = new Set();
+
 function renderChain() {
   const s = getState();
   const ol = $("#lib-chain");
@@ -152,15 +155,19 @@ function renderChain() {
     const li = document.createElement("li");
     li.className = "chain-slot";
 
+    // --- Row 1: header + controls ---
+    const row1 = document.createElement("div");
+    row1.className = "chain-row";
+
     const head = document.createElement("div");
     head.className = "chain-head";
     head.innerHTML = `<strong>${pos + 1}.</strong> ${board?.name ?? "?"}`;
-    li.appendChild(head);
+    row1.appendChild(head);
 
-    // rotation control
+    // rotation
     const rot = document.createElement("label");
     rot.className = "chain-control";
-    rot.innerHTML = "Rotation: ";
+    rot.innerHTML = "Rot: ";
     const rotSel = document.createElement("select");
     for (const q of [0, 1, 2, 3]) {
       const o = document.createElement("option");
@@ -170,9 +177,39 @@ function renderChain() {
     }
     rotSel.onchange = () => setState(st => updateSlot(st, pos, { rotation: parseInt(rotSel.value, 10) }));
     rot.appendChild(rotSel);
-    li.appendChild(rot);
+    row1.appendChild(rot);
 
-    // filters
+    // glyph picker
+    const glyphLbl = document.createElement("label");
+    glyphLbl.className = "chain-control";
+    glyphLbl.innerHTML = "Glyph: ";
+    const glyphSel = document.createElement("select");
+    const noneOpt = document.createElement("option");
+    noneOpt.value = ""; noneOpt.textContent = "— (optimizer chooses) —";
+    glyphSel.appendChild(noneOpt);
+    for (const g of s.glyphs) {
+      const o = document.createElement("option");
+      o.value = g.id; o.textContent = g.name;
+      if (slot.pinnedGlyph === g.id) o.selected = true;
+      glyphSel.appendChild(o);
+    }
+    glyphSel.onchange = () => setState(st => updateSlot(st, pos, { pinnedGlyph: glyphSel.value || null }));
+    glyphLbl.appendChild(glyphSel);
+    row1.appendChild(glyphLbl);
+
+    // controls
+    const ctl = document.createElement("div"); ctl.className = "chain-buttons";
+    const up = btn("↑", () => setState(st => moveSlot(st, pos, -1)));
+    const down = btn("↓", () => setState(st => moveSlot(st, pos, +1)));
+    const rm = btn("✕", () => setState(st => removeSlot(st, pos)));
+    ctl.append(up, down, rm);
+    row1.appendChild(ctl);
+
+    li.appendChild(row1);
+
+    // --- Row 2: filters + Pick nodes toggle ---
+    const row2 = document.createElement("div");
+    row2.className = "chain-row chain-row-filters";
     const f = slot.filters || defaultFilters();
     const fdiv = document.createElement("div");
     fdiv.className = "chain-filters";
@@ -186,15 +223,26 @@ function renderChain() {
       lbl.append(cb, document.createTextNode(" " + kind));
       fdiv.appendChild(lbl);
     }
-    li.appendChild(fdiv);
+    row2.appendChild(fdiv);
 
-    // move / remove
-    const ctl = document.createElement("div"); ctl.className = "chain-buttons";
-    const up = btn("↑", () => setState(st => moveSlot(st, pos, -1)));
-    const down = btn("↓", () => setState(st => moveSlot(st, pos, +1)));
-    const rm = btn("✕", () => setState(st => removeSlot(st, pos)));
-    ctl.append(up, down, rm);
-    li.appendChild(ctl);
+    const pickBtn = document.createElement("button");
+    pickBtn.className = "chain-pick-btn";
+    const isOpen = nodePanelOpen.has(pos);
+    const overrideCount = Object.keys(slot.selectedNodes || {}).length;
+    pickBtn.textContent = (isOpen ? "▾ " : "▸ ") + "Pick nodes" +
+      (overrideCount ? ` (${overrideCount} override${overrideCount === 1 ? "" : "s"})` : "");
+    pickBtn.onclick = () => {
+      if (isOpen) nodePanelOpen.delete(pos); else nodePanelOpen.add(pos);
+      renderChain();
+    };
+    row2.appendChild(pickBtn);
+
+    li.appendChild(row2);
+
+    // --- Optional node panel ---
+    if (isOpen && board) {
+      li.appendChild(renderNodePanel(pos, slot, board));
+    }
 
     ol.appendChild(li);
   });
@@ -204,6 +252,98 @@ function renderChain() {
     note.textContent = `(${MAX_CHAIN - s.chain.length} more slot${s.chain.length === MAX_CHAIN - 1 ? "" : "s"} available — pick boards above)`;
     ol.appendChild(note);
   }
+}
+
+function renderNodePanel(pos, slot, board) {
+  const wrap = document.createElement("div");
+  wrap.className = "node-panel";
+
+  // Group cells by tier (legendary first, then rare, then magic). Use the unrotated
+  // board so positions match the stored selectedNodes keys (srcKey).
+  const groups = { legendary: [], rare: [], magic: [] };
+  for (let r = 0; r < board.size; r++) {
+    for (let c = 0; c < board.size; c++) {
+      const cell = board.cells[r][c];
+      if (!cell || !groups[cell.type]) continue;
+      groups[cell.type].push({ r, c, cell });
+    }
+  }
+
+  const filters = slot.filters || defaultFilters();
+  const sel = slot.selectedNodes || {};
+
+  for (const tier of ["legendary", "rare", "magic"]) {
+    if (!groups[tier].length) continue;
+    const section = document.createElement("div");
+    section.className = "node-section node-section-" + tier;
+    const h = document.createElement("h5");
+    h.textContent = `${tier} (${groups[tier].length})`;
+    section.appendChild(h);
+
+    // bulk toggle helpers
+    const bulk = document.createElement("div"); bulk.className = "node-bulk";
+    bulk.appendChild(btn("All", () => bulkSetTier(pos, groups[tier], true)));
+    bulk.appendChild(btn("None", () => bulkSetTier(pos, groups[tier], false)));
+    bulk.appendChild(btn("Reset", () => bulkClearTier(pos, groups[tier])));
+    section.appendChild(bulk);
+
+    for (const { r, c, cell } of groups[tier]) {
+      const srcKey = cell.srcKey || (r + "," + c);
+      const lbl = document.createElement("label");
+      lbl.className = "node-item";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      const override = sel[srcKey];
+      // Effective state = override if defined, else global filter for this tier
+      cb.checked = override !== undefined ? !!override : !!filters[tier];
+      if (override !== undefined) cb.classList.add("override");
+      cb.onchange = () => setState(st => {
+        const slot = st.chain[pos];
+        const nextSel = { ...(slot.selectedNodes || {}) };
+        // If we toggled back to match the global filter, drop the override entirely.
+        if (cb.checked === !!slot.filters[tier]) delete nextSel[srcKey];
+        else nextSel[srcKey] = cb.checked;
+        return updateSlot(st, pos, { selectedNodes: nextSel });
+      });
+      lbl.appendChild(cb);
+      const text = document.createElement("span");
+      const label = cell.label || cell.nodeId || "?";
+      text.textContent = ` ${label}`;
+      text.title = cell.nodeId || "";
+      lbl.appendChild(text);
+      section.appendChild(lbl);
+    }
+
+    wrap.appendChild(section);
+  }
+  if (!groups.legendary.length && !groups.rare.length && !groups.magic.length) {
+    const empty = document.createElement("div"); empty.className = "hint";
+    empty.textContent = "(no magic/rare/legendary nodes on this board)";
+    wrap.appendChild(empty);
+  }
+  return wrap;
+}
+
+function bulkSetTier(pos, items, value) {
+  setState(st => {
+    const slot = st.chain[pos];
+    const nextSel = { ...(slot.selectedNodes || {}) };
+    for (const { cell } of items) {
+      const k = cell.srcKey;
+      if (!k) continue;
+      if (value === !!slot.filters[cell.type]) delete nextSel[k];
+      else nextSel[k] = value;
+    }
+    return updateSlot(st, pos, { selectedNodes: nextSel });
+  });
+}
+function bulkClearTier(pos, items) {
+  setState(st => {
+    const slot = st.chain[pos];
+    const nextSel = { ...(slot.selectedNodes || {}) };
+    for (const { cell } of items) if (cell.srcKey) delete nextSel[cell.srcKey];
+    return updateSlot(st, pos, { selectedNodes: nextSel });
+  });
 }
 
 function btn(text, onclick) {

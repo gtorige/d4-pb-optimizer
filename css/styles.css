@@ -110,13 +110,31 @@ main { padding: 16px; }
 
 .lib-chain { background: var(--panel); border: 1px solid var(--border); padding: 12px; border-radius: 4px; list-style: none; padding-left: 12px; }
 .lib-chain li { margin: 6px 0; }
-.chain-slot { display: grid; grid-template-columns: 2fr 1fr 1.5fr auto; gap: 12px; align-items: center; padding: 6px 8px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 3px; }
-.chain-head { font-size: 13px; }
-.chain-control { font-size: 12px; }
-.chain-filters { display: flex; gap: 8px; font-size: 12px; }
+.chain-slot { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 3px; }
+.chain-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.chain-row-filters { padding-top: 4px; border-top: 1px dashed var(--border); }
+.chain-head { font-size: 13px; flex: 1 1 auto; min-width: 160px; }
+.chain-control { font-size: 12px; display: flex; align-items: center; gap: 4px; }
+.chain-control select { font-size: 12px; max-width: 200px; }
+.chain-filters { display: flex; gap: 8px; font-size: 12px; flex: 1 1 auto; }
 .chain-filters label { display: flex; align-items: center; gap: 3px; }
 .chain-buttons { display: flex; gap: 4px; }
+.chain-pick-btn { font-size: 12px; }
 .chain-empty { color: var(--muted); font-style: italic; font-size: 12px; }
+
+.node-panel { margin-top: 6px; padding: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; max-height: 320px; overflow: auto; }
+.node-section { margin: 6px 0; }
+.node-section h5 { margin: 0 0 4px; font-size: 12px; text-transform: capitalize; color: var(--accent); }
+.node-section-legendary h5 { color: var(--legendary); }
+.node-section-rare h5 { color: var(--rare); }
+.node-section-magic h5 { color: var(--magic); }
+.node-bulk { display: flex; gap: 4px; margin-bottom: 4px; }
+.node-bulk button { padding: 2px 6px; font-size: 11px; }
+.node-item { display: flex; align-items: flex-start; gap: 4px; padding: 2px 4px; font-size: 12px; cursor: pointer; }
+.node-item:hover { background: var(--panel-2); }
+.node-item input.override { outline: 2px solid var(--accent); border-radius: 2px; }
+
+.warn { background: #3a1f12; border: 1px solid var(--legendary); color: var(--legendary); padding: 6px 10px; border-radius: 3px; margin: 6px 0; }
 
 .lib-selected-glyphs { list-style: none; padding-left: 12px; }
 .lib-selected-glyphs li { padding: 3px 0; }

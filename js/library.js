@@ -53,9 +53,14 @@ export function importBoard(className, boardName) {
       const id = grid[r][c];
       if (!id) continue;
       const type = cellTypeFromId(id);
-      const cell = { type, stats: defaultStatsFromId(id), nodeId: id };
       const tr = r + rowOffset;
       const tc = c + colOffset;
+      const cell = {
+        type,
+        stats: defaultStatsFromId(id),
+        nodeId: id,
+        srcKey: tr + "," + tc, // stable identity across rotations
+      };
       if (type === "gate") cell.gateDir = inferGateDir(tr, tc, size);
       const info = lookupNode(className, id);
       if (info?.name) cell.label = info.name;

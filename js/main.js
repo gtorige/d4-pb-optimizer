@@ -34,6 +34,7 @@ async function runOptimize() {
     pointBudget: parseInt($("#point-budget").value, 10) || 1,
     glyphRadius: parseInt($("#glyph-radius").value, 10) || 1,
     tryAllRotations: $("#opt-rotations").checked,
+    minimizePoints: $("#opt-minpoints").checked,
   }));
 
   $("#run-optimize").disabled = true;
@@ -46,7 +47,9 @@ async function runOptimize() {
       startTemp: parseFloat($("#sa-temp").value) || 1,
       seed: parseInt($("#sa-seed").value, 10) || 1,
       onProgress: (info) => {
-        status.textContent = `iter ${info.iter}  cur=${info.cur.toFixed(3)}  best=${info.best.toFixed(3)}  pts=${info.points}/${getState().pointBudget}  T=${info.temp.toFixed(3)}`;
+        let line = `iter ${info.iter}  cur=${info.cur.toFixed(3)}  best=${info.best.toFixed(3)}  pts=${info.points}/${getState().pointBudget}  T=${info.temp.toFixed(3)}`;
+        if (info.warning) line += `\n${info.warning}`;
+        status.textContent = line;
       },
       shouldStop: () => stopRequested,
     });
@@ -65,8 +68,15 @@ function renderResult(out) {
   result.innerHTML = "";
   const head = document.createElement("div");
   head.innerHTML = `<strong>Best score:</strong> ${out.score.toFixed(3)} &nbsp; ` +
+    `<strong>Points:</strong> ${out.totalPoints ?? "?"}/${out.ctx.pointBudget} &nbsp; ` +
     `<strong>Active boards:</strong> ${out.activeBoards.length} / ${out.ctx.chain.length}`;
   result.appendChild(head);
+  if (out.missingRequired) {
+    const warn = document.createElement("div");
+    warn.className = "warn";
+    warn.textContent = `⚠ ${out.missingRequired} required node(s) could not be routed — raise budget or check connectivity.`;
+    result.appendChild(warn);
+  }
 
   const rotLine = document.createElement("div");
   rotLine.innerHTML = "<strong>Rotations:</strong> " +
@@ -130,6 +140,7 @@ function setupRunControls() {
   $("#point-budget").value = s.pointBudget;
   $("#glyph-radius").value = s.glyphRadius;
   $("#opt-rotations").checked = !!s.tryAllRotations;
+  $("#opt-minpoints").checked = !!s.minimizePoints;
 }
 
 function setupDataTab() {
