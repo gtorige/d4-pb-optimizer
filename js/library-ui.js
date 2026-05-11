@@ -99,7 +99,14 @@ function addBoardToChain(className, boardName) {
 function renderGlyphCards() {
   const host = $("#lib-glyph-cards");
   host.innerHTML = "";
-  const all = listGlyphs();
+  const s = getState();
+  const all = listGlyphs(s.selectedClass);
+  if (!all.length) {
+    const note = document.createElement("p"); note.className = "hint";
+    note.textContent = `(no glyphs flagged usable by ${s.selectedClass} in the bundled dataset)`;
+    host.appendChild(note);
+    return;
+  }
   for (const g of all) {
     const card = document.createElement("div");
     card.className = "lib-card lib-glyph-card";
@@ -270,6 +277,12 @@ function renderNodePanel(pos, slot, board) {
   const wrap = document.createElement("div");
   wrap.className = "node-panel";
 
+  const intro = document.createElement("p");
+  intro.className = "hint";
+  intro.textContent = "Check a node to mark it as REQUIRED — the optimizer will route through it. " +
+    "Unchecked nodes can still be used as bridges when needed.";
+  wrap.appendChild(intro);
+
   // Group cells by tier (legendary first, then rare, then magic). Use the unrotated
   // board so positions match the stored selectedNodes keys (srcKey).
   const groups = { legendary: [], rare: [], magic: [] };
@@ -281,48 +294,50 @@ function renderNodePanel(pos, slot, board) {
     }
   }
 
-  const filters = slot.filters || defaultFilters();
   const sel = slot.selectedNodes || {};
+  const countRequired = (items) => items.filter(x => sel[x.cell.srcKey] === true).length;
 
   for (const tier of ["legendary", "rare", "magic"]) {
     if (!groups[tier].length) continue;
     const section = document.createElement("div");
     section.className = "node-section node-section-" + tier;
+    const reqN = countRequired(groups[tier]);
     const h = document.createElement("h5");
-    h.textContent = `${tier} (${groups[tier].length})`;
+    h.textContent = `${tier} — ${reqN} required / ${groups[tier].length} available`;
     section.appendChild(h);
 
-    // bulk toggle helpers
     const bulk = document.createElement("div"); bulk.className = "node-bulk";
-    bulk.appendChild(btn("All", () => bulkSetTier(pos, groups[tier], true)));
-    bulk.appendChild(btn("None", () => bulkSetTier(pos, groups[tier], false)));
-    bulk.appendChild(btn("Reset", () => bulkClearTier(pos, groups[tier])));
+    bulk.appendChild(btn("All required", () => bulkSetRequired(pos, groups[tier], true)));
+    bulk.appendChild(btn("Clear required", () => bulkSetRequired(pos, groups[tier], false)));
     section.appendChild(bulk);
 
     for (const { r, c, cell } of groups[tier]) {
       const srcKey = cell.srcKey || (r + "," + c);
       const lbl = document.createElement("label");
       lbl.className = "node-item";
+      if (sel[srcKey] === true) lbl.classList.add("required");
       const cb = document.createElement("input");
       cb.type = "checkbox";
-      const override = sel[srcKey];
-      // Effective state = override if defined, else global filter for this tier
-      cb.checked = override !== undefined ? !!override : !!filters[tier];
-      if (override !== undefined) cb.classList.add("override");
+      cb.checked = sel[srcKey] === true;
       cb.onchange = () => setState(st => {
         const slot = st.chain[pos];
         const nextSel = { ...(slot.selectedNodes || {}) };
-        // If we toggled back to match the global filter, drop the override entirely.
-        if (cb.checked === !!slot.filters[tier]) delete nextSel[srcKey];
-        else nextSel[srcKey] = cb.checked;
+        if (cb.checked) nextSel[srcKey] = true;
+        else delete nextSel[srcKey];
         return updateSlot(st, pos, { selectedNodes: nextSel });
       });
       lbl.appendChild(cb);
       const text = document.createElement("span");
       const label = cell.label || cell.nodeId || "?";
-      text.textContent = ` ${label}`;
-      text.title = cell.nodeId || "";
+      text.textContent = " " + label;
+      if (cell.nodeId) lbl.title = cell.nodeId;
       lbl.appendChild(text);
+      if (cell.type === "legendary" && cell.desc) {
+        const d = document.createElement("div");
+        d.className = "node-desc";
+        d.textContent = cell.desc;
+        lbl.appendChild(d);
+      }
       section.appendChild(lbl);
     }
 
@@ -336,24 +351,16 @@ function renderNodePanel(pos, slot, board) {
   return wrap;
 }
 
-function bulkSetTier(pos, items, value) {
+function bulkSetRequired(pos, items, required) {
   setState(st => {
     const slot = st.chain[pos];
     const nextSel = { ...(slot.selectedNodes || {}) };
     for (const { cell } of items) {
       const k = cell.srcKey;
       if (!k) continue;
-      if (value === !!slot.filters[cell.type]) delete nextSel[k];
-      else nextSel[k] = value;
+      if (required) nextSel[k] = true;
+      else delete nextSel[k];
     }
-    return updateSlot(st, pos, { selectedNodes: nextSel });
-  });
-}
-function bulkClearTier(pos, items) {
-  setState(st => {
-    const slot = st.chain[pos];
-    const nextSel = { ...(slot.selectedNodes || {}) };
-    for (const { cell } of items) if (cell.srcKey) delete nextSel[cell.srcKey];
     return updateSlot(st, pos, { selectedNodes: nextSel });
   });
 }
