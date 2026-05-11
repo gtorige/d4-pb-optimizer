@@ -114,10 +114,11 @@ function findDroppableInBoard(s, terms) {
 }
 
 /** Build per-slot context (rotated board, graph, terminals, gates). */
-function buildSlot(state, bi) {
+function buildSlot(state, bi, rotationOverride) {
   const slot = state.chain[bi];
   const baseBoard = state.boards[slot.boardIndex];
-  const rotated = slot.rotation ? rotateBoard(baseBoard, slot.rotation) : baseBoard;
+  const rotation = rotationOverride != null ? rotationOverride : (slot.rotation || 0);
+  const rotated = rotation ? rotateBoard(baseBoard, rotation) : baseBoard;
   const size = rotated.size;
   const graph = new Set();
   const gates = [];
@@ -136,7 +137,29 @@ function buildSlot(state, bi) {
       if (cell.srcKey && slot.selectedNodes[cell.srcKey] === true) forced.push(k);
     }
   }
-  return { slot, rotated, graph, gates, startCell, socketCell, forced };
+  return { slot, rotated, rotation, graph, gates, startCell, socketCell, forced };
+}
+
+/** Pick gates + solve once for a given slot context. Returns { tree, terminals }. */
+function solveSlot(s) {
+  const isLast = s.isLast;
+  const anchors = [s.startCell, s.socketCell, ...s.forced].filter(Boolean);
+  let entryGate = null, exitGate = null;
+  if (s.firstSlot) {
+    entryGate = null;
+    exitGate = isLast ? null : chooseClosestGate(s.gates, anchors.length ? anchors : s.gates, s.graph, s.rotated.size);
+  } else {
+    entryGate = chooseClosestGate(s.gates, anchors.length ? anchors : s.gates, s.graph, s.rotated.size);
+    if (isLast) exitGate = null;
+    else {
+      const remaining = s.gates.filter(g => g !== entryGate);
+      exitGate = chooseClosestGate(remaining, [...anchors, entryGate], s.graph, s.rotated.size);
+    }
+  }
+  const terms = new Set([s.startCell, s.socketCell, entryGate, exitGate, ...s.forced].filter(Boolean));
+  if (terms.size === 0) return { tree: new Set(), entryGate, exitGate, terminals: terms };
+  const tree = steinerTree(s.graph, s.rotated.size, [...terms]);
+  return { tree, entryGate, exitGate, terminals: terms };
 }
 
 /**
@@ -148,28 +171,30 @@ export function optimizeSteiner(state) {
   const N = state.chain.length;
   if (N === 0) throw new Error("Empty chain.");
 
+  // Build slot contexts. When tryAllRotations is on, try all 4 rotations per
+  // board and pick the rotation that yields the smallest Steiner tree.
+  const tryRotations = !!state.tryAllRotations;
   const slots = [];
-  for (let bi = 0; bi < N; bi++) slots.push(buildSlot(state, bi));
-
-  // Pick entry/exit gates per board
   for (let bi = 0; bi < N; bi++) {
-    const s = slots[bi];
     const isLast = bi === N - 1;
-    // Anchor cells: start (board 0), forced nodes, glyph socket.
-    const anchors = [s.startCell, s.socketCell, ...s.forced].filter(Boolean);
-    if (bi === 0) {
-      s.entryGate = null;
-      s.exitGate = isLast ? null : chooseClosestGate(s.gates, anchors.length ? anchors : s.gates, s.graph, s.rotated.size);
-    } else {
-      s.entryGate = chooseClosestGate(s.gates, anchors.length ? anchors : s.gates, s.graph, s.rotated.size);
-      if (isLast) {
-        s.exitGate = null;
-      } else {
-        const remaining = s.gates.filter(g => g !== s.entryGate);
-        const newAnchors = [...anchors, s.entryGate];
-        s.exitGate = chooseClosestGate(remaining, newAnchors, s.graph, s.rotated.size);
+    const firstSlot = bi === 0;
+    let best = null;
+    const rots = tryRotations ? [0, 1, 2, 3] : [state.chain[bi].rotation || 0];
+    for (const rot of rots) {
+      const ctx = buildSlot(state, bi, rot);
+      ctx.firstSlot = firstSlot;
+      ctx.isLast = isLast;
+      const solved = solveSlot(ctx);
+      const size = solved.tree ? solved.tree.size : Infinity;
+      if (!best || size < best.size) {
+        best = { ctx, ...solved, size };
       }
     }
+    const s = best.ctx;
+    s.entryGate = best.entryGate;
+    s.exitGate = best.exitGate;
+    s._precomputed = best.tree; // cache for first solve
+    slots.push(s);
   }
 
   // Solve per board (first pass, with all required terminals)
@@ -321,7 +346,7 @@ export function optimizeSteiner(state) {
     missingRequired: dropped.length,
     score: -totalPoints, // for compatibility with display
     stats: collectStats(state, slots, activated),
-    rotations: state.chain.map(s => s.rotation || 0),
+    rotations: slots.map(s => s.rotation || 0),
     order: state.chain.map(s => s.boardIndex),
     ctx: {
       chain: state.chain,
