@@ -97,7 +97,8 @@ function buildSummary(out) {
   const th = document.createElement("h4"); th.textContent = "Activated nodes by board"; tiersSec.appendChild(th);
   for (let bi = 0; bi < out.ctx.chain.length; bi++) {
     const slot = out.ctx.chain[bi];
-    const board = state.boards[slot.boardIndex];
+    const boardIdx = out.order?.[bi] ?? slot.boardIndex;
+    const board = state.boards[boardIdx];
     const rotatedCells = out.ctx.idx[bi].rotated?.cells || board.cells;
     const act = out.solution.activated[bi];
     const byTier = { legendary: [], rare: [], magic: [], socket: [], normal: [], gate: [], start: [] };
@@ -167,29 +168,39 @@ function renderResult(out) {
     result.appendChild(warn);
   }
 
-  const rotLine = document.createElement("div");
-  rotLine.innerHTML = "<strong>Rotations:</strong> " +
-    out.rotations.map((q, i) => `#${i + 1}=${q * 90}°`).join(", ");
-  result.appendChild(rotLine);
+  const state = getState();
+  const orderLine = document.createElement("div");
+  orderLine.innerHTML = "<strong>Order:</strong> " +
+    out.order.map((bi, i) => `${i + 1}. ${state.boards[bi]?.name ?? "?"} (rot ${(out.rotations[i] || 0) * 90}°)`).join(" → ");
+  result.appendChild(orderLine);
 
   result.appendChild(buildSummary(out));
 
   const apply = document.createElement("button");
-  apply.textContent = "Apply rotations to chain";
+  apply.textContent = "Apply rotations + order to chain";
   apply.onclick = () => {
     setState(st => {
-      const chain = st.chain.map((slot, i) => ({ ...slot, rotation: out.rotations[i] ?? slot.rotation }));
+      const chain = out.order.map((bi, i) => {
+        // Find the slot in current state matching this board+rotation pairing.
+        // We keep the slot's filters/pinnedGlyph/selectedNodes from the prior slot
+        // at position `i` (so user-set per-slot settings stick to their slot index).
+        const prior = st.chain[i] || { filters: {}, selectedNodes: {}, pinnedGlyph: null };
+        return {
+          ...prior,
+          boardIndex: bi,
+          rotation: out.rotations[i] ?? 0,
+        };
+      });
       return { ...st, chain };
     });
-    alert("Rotations applied. Open Boards tab to inspect.");
+    alert("Rotations and order applied. Open Library/Boards tab to inspect.");
   };
   result.appendChild(apply);
 
   // mini-render each rotated board with activations
-  const state = getState();
   for (let bi = 0; bi < out.ctx.chain.length; bi++) {
-    const slot = out.ctx.chain[bi];
-    const baseBoard = state.boards[slot.boardIndex];
+    const boardIdx = out.order[bi] ?? out.ctx.chain[bi].boardIndex;
+    const baseBoard = state.boards[boardIdx];
     const rotated = rotateBoard(baseBoard, out.rotations[bi] || 0);
     const act = out.solution.activated[bi];
     const wrap = document.createElement("div");

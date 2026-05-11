@@ -1,7 +1,6 @@
 // UI for the bundled paragon-board library.
 import { getState, setState, defaultChainSlot, defaultFilters } from "./state.js";
-import { CLASSES, listBoards, listGlyphs, importBoard, importGlyph, lookupNode } from "./library.js";
-import { paragonData } from "./paragon-data.js";
+import { classes, getDataset, listBoards, listGlyphs, importBoard, importGlyph, lookupNode, setDataset, datasetIsBundled } from "./library.js";
 
 const $ = (s) => document.querySelector(s);
 const MAX_CHAIN = 5;
@@ -20,7 +19,12 @@ function renderClassSelect() {
   const sel = $("#lib-class");
   const s = getState();
   sel.innerHTML = "";
-  for (const c of CLASSES) {
+  const avail = classes();
+  if (avail.length && !avail.includes(s.selectedClass)) {
+    setState(st => ({ ...st, selectedClass: avail[0] }));
+    return; // re-renders via subscribe
+  }
+  for (const c of avail) {
     const o = document.createElement("option");
     o.value = c; o.textContent = c;
     if (c === s.selectedClass) o.selected = true;
@@ -38,7 +42,7 @@ function renderBoardCards(className) {
     const title = document.createElement("h4");
     title.textContent = boardName;
     card.appendChild(title);
-    card.appendChild(miniGrid(paragonData[className].boards[boardName], 4));
+    card.appendChild(miniGrid(getDataset()[className].boards[boardName], 4));
     const btn = document.createElement("button");
     btn.textContent = "+ Add to chain";
     btn.onclick = () => addBoardToChain(className, boardName);
@@ -404,4 +408,28 @@ function renderSelectedGlyphs() {
 export function wireLibraryUI() {
   $("#lib-class").onchange = (e) => setState(st => ({ ...st, selectedClass: e.target.value }));
   $("#lib-try-rotations").onchange = (e) => setState(st => ({ ...st, tryAllRotations: e.target.checked }));
+  $("#lib-load-dataset").onclick = () => $("#lib-dataset-file").click();
+  $("#lib-dataset-file").onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      setDataset(data);
+      // selectedClass may no longer exist in the new dataset
+      const avail = classes();
+      setState(st => ({ ...st, selectedClass: avail.includes(st.selectedClass) ? st.selectedClass : avail[0] }));
+      alert(`Dataset loaded: ${classes().length} class(es).`);
+    } catch (err) {
+      alert("Dataset import failed: " + err.message);
+    }
+    e.target.value = "";
+  };
+  $("#lib-reset-dataset").onclick = () => {
+    if (!confirm("Restore the bundled dataset? Any imported dataset will be discarded.")) return;
+    setDataset(null);
+    const avail = classes();
+    setState(st => ({ ...st, selectedClass: avail.includes(st.selectedClass) ? st.selectedClass : avail[0] }));
+    alert("Restored bundled dataset.");
+  };
 }

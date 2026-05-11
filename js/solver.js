@@ -276,12 +276,13 @@ function activeBoards(solution, ctx) {
 
 function proposeMove(solution, ctx, rand) {
   const move = rand();
-  if (move < 0.25) return tryAdd(solution, ctx, rand);
-  if (move < 0.50) return tryRemove(solution, ctx, rand);
-  if (move < 0.70) return trySwap(solution, ctx, rand);
-  if (move < 0.82) return tryMoveGlyph(solution, ctx, rand);
-  if (move < 0.92) return tryReassignGlyphs(solution, ctx, rand);
-  return tryRotateBoard(solution, ctx, rand);
+  if (move < 0.22) return tryAdd(solution, ctx, rand);
+  if (move < 0.44) return tryRemove(solution, ctx, rand);
+  if (move < 0.62) return trySwap(solution, ctx, rand);
+  if (move < 0.74) return tryMoveGlyph(solution, ctx, rand);
+  if (move < 0.84) return tryReassignGlyphs(solution, ctx, rand);
+  if (move < 0.92) return tryRotateBoard(solution, ctx, rand);
+  return trySwapBoardOrder(solution, ctx, rand);
 }
 
 function tryAdd(solution, ctx, rand) {
@@ -382,17 +383,12 @@ function tryReassignGlyphs(solution, ctx, rand) {
   };
 }
 
-/** Try rotating one of the boards by ±1 quarter-turn (when allowed). Clears activation
- *  on that board because cell positions all shift; the SA will re-grow it from the gate. */
+/** Try rotating one of the boards by ±1 quarter-turn (when allowed). The starter
+ *  board (slot 0) is always pinned because it carries the start cell. */
 function tryRotateBoard(solution, ctx, rand) {
   if (!ctx.tryAllRotations) return null;
-  // Don't rotate board 0 (start cell); rotating loses the start-anchored entry semantics.
-  // Allow it only when board 0 also has gates the solver could use; otherwise restrict.
   const candidates = [];
-  for (let bi = 0; bi < ctx.chain.length; bi++) {
-    if (bi === 0 && !ctx.idx[bi].gateKeys.length && ctx.idx[bi].startKey) continue;
-    candidates.push(bi);
-  }
+  for (let bi = 1; bi < ctx.chain.length; bi++) candidates.push(bi);
   if (!candidates.length) return null;
   const bi = candidates[Math.floor(rand() * candidates.length)];
   const dq = (rand() < 0.5 ? 1 : 3);
@@ -422,6 +418,86 @@ function tryRotateBoard(solution, ctx, rand) {
       solution.glyphSocket[bi] = prevSocket;
     },
   };
+}
+
+/** Swap two non-starter chain slots (slot 0 is pinned). Recomputes both slots'
+ *  idx; clears their activation since cell coordinates change between boards. */
+function trySwapBoardOrder(solution, ctx, rand) {
+  if (ctx.chain.length < 3) return null; // need at least 2 swappable slots
+  // pick two distinct indices from [1, length)
+  const i = 1 + Math.floor(rand() * (ctx.chain.length - 1));
+  let j = 1 + Math.floor(rand() * (ctx.chain.length - 1));
+  if (j === i) j = i === 1 ? Math.min(ctx.chain.length - 1, i + 1) : i - 1;
+  if (i === j) return null;
+  const prevChainI = ctx.chain[i];
+  const prevChainJ = ctx.chain[j];
+  const prevIdxI = ctx.idx[i];
+  const prevIdxJ = ctx.idx[j];
+  const prevActI = solution.activated[i];
+  const prevActJ = solution.activated[j];
+  const prevGlyphI = solution.glyphs[i];
+  const prevGlyphJ = solution.glyphs[j];
+  const prevSocketI = solution.glyphSocket[i];
+  const prevSocketJ = solution.glyphSocket[j];
+  return {
+    apply: () => {
+      ctx.chain[i] = prevChainJ;
+      ctx.chain[j] = prevChainI;
+      ctx.idx[i] = prevIdxJ;
+      ctx.idx[j] = prevIdxI;
+      // The activated sets are tied to specific cell coordinates of the OLD slots;
+      // after swap the same coordinates may not exist on the new boards. Reset and
+      // seed both new slots from their gate entries. SA will grow them back.
+      solution.activated[i] = new Set();
+      solution.activated[j] = new Set();
+      const entryI = i === 0 ? (ctx.idx[i].startKey || ctx.idx[i].gateKeys[0]) : ctx.idx[i].gateKeys[0];
+      const entryJ = ctx.idx[j].gateKeys[0];
+      if (entryI) solution.activated[i].add(entryI);
+      if (entryJ) solution.activated[j].add(entryJ);
+      // glyph + socket follow their slot (pinned semantics still apply)
+      solution.glyphs[i] = prevGlyphJ;
+      solution.glyphs[j] = prevGlyphI;
+      solution.glyphSocket[i] = null;
+      solution.glyphSocket[j] = null;
+      // Re-route required nodes on the new boards from the entries.
+      seedRequiredOne(solution, ctx, i);
+      seedRequiredOne(solution, ctx, j);
+    },
+    undo: () => {
+      ctx.chain[i] = prevChainI;
+      ctx.chain[j] = prevChainJ;
+      ctx.idx[i] = prevIdxI;
+      ctx.idx[j] = prevIdxJ;
+      solution.activated[i] = prevActI;
+      solution.activated[j] = prevActJ;
+      solution.glyphs[i] = prevGlyphI;
+      solution.glyphs[j] = prevGlyphJ;
+      solution.glyphSocket[i] = prevSocketI;
+      solution.glyphSocket[j] = prevSocketJ;
+    },
+  };
+}
+
+/** Helper used by the swap-order move to seed required nodes for a single slot. */
+function seedRequiredOne(sol, ctx, bi) {
+  const idx = ctx.idx[bi];
+  if (!idx.requiredKeys || idx.requiredKeys.size === 0) return;
+  const act = sol.activated[bi];
+  if (act.size === 0) {
+    const entry = bi === 0 ? (idx.startKey || idx.gateKeys[0]) : idx.gateKeys[0];
+    if (entry) act.add(entry);
+  }
+  const remaining = new Set([...idx.requiredKeys].filter(k => !act.has(k)));
+  while (remaining.size) {
+    let best = null;
+    for (const k of remaining) {
+      const path = bfsPath(act, k, idx);
+      if (path && (best === null || path.length < best.path.length)) best = { k, path };
+    }
+    if (!best) break;
+    for (const c of best.path) act.add(c);
+    remaining.delete(best.k);
+  }
 }
 
 export async function optimize(state, opts) {
@@ -477,6 +553,7 @@ export async function optimize(state, opts) {
   let curScore = score(cur, ctx);
   let best = cloneSolution(cur);
   let bestRotations = ctx.chain.map(s => s.rotation || 0);
+  let bestOrder = ctx.chain.map(s => s.boardIndex);
   let bestScore = curScore;
 
   const N = opts.iterations | 0 || 20000;
@@ -499,6 +576,7 @@ export async function optimize(state, opts) {
         bestScore = ns;
         best = cloneSolution(cur);
         bestRotations = ctx.chain.map(s => s.rotation || 0);
+        bestOrder = ctx.chain.map(s => s.boardIndex);
       }
     } else {
       mv.undo();
@@ -523,6 +601,7 @@ export async function optimize(state, opts) {
     stats: totalStats(best, ctx),
     activeBoards: activeBoards(best, ctx),
     rotations: bestRotations,
+    order: bestOrder,
     totalPoints: totalPoints(best),
     missingRequired,
     ctx,
