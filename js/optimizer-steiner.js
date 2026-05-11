@@ -232,6 +232,29 @@ export function optimizeSteiner(state) {
       recomputeBoard(cand.bi);
       total = perBoardCounts.reduce((a, b) => a + b, 0);
     }
+    // Re-add pass: dropping a single magic at the tip of a long path can
+    // collapse 5-10 cells, over-shrinking the tree. Walk the dropped list in
+    // reverse priority order and re-add each one that still fits. Cap the
+    // number of recompute attempts so we don't burn 30+ seconds on builds
+    // with dozens of marks.
+    let attempts = 0;
+    const MAX_READD_ATTEMPTS = 8;
+    for (let i = dropped.length - 1; i >= 0 && attempts < MAX_READD_ATTEMPTS; i--) {
+      if (dropped[i].reason !== "budget") continue;
+      attempts++;
+      const d = dropped[i];
+      const prevCount = perBoardCounts[d.bi];
+      terminalsPerBoard[d.bi].add(d.key);
+      recomputeBoard(d.bi);
+      const newTotal = perBoardCounts.reduce((a, b) => a + b, 0);
+      if (newTotal <= budget) {
+        dropped.splice(i, 1); // keep
+      } else {
+        terminalsPerBoard[d.bi].delete(d.key);
+        perBoardCounts[d.bi] = prevCount;
+        recomputeBoard(d.bi);
+      }
+    }
   }
 
   // Glyph assignment: respect pinnedGlyph; for unpinned slots, assign any
