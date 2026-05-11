@@ -88,14 +88,18 @@ The optimizer reports the best rotations alongside the score, and the
 ### Data source
 
 Bundled paragon data is sourced from
-[Lothrik/diablo4-build-calc](https://github.com/Lothrik/diablo4-build-calc).
-Localization is stripped to keep the bundle around 290 KB; only English text
-is retained.
+[DiabloTools/d4data](https://github.com/DiabloTools/d4data), datamined for the
+current Lord of Hatred / Season 13 build. All eight classes are included:
+Barbarian, Druid, Necromancer, Sorcerer, Rogue, Paladin, Spiritborn, Warlock.
 
-**The bundled dataset predates Vessel of Hatred and Lord of Hatred**, so it does
-not include Spiritborn, Paladin, or Warlock, and base-class boards may be out of
-date for Season 13. Use the Library tab's *Load dataset…* button to load a
-current JSON file.
+Board names in the bundled dataset are placeholders (`Start`, `Board 1`, … `Board N`)
+because d4data ships board layouts without resolved English display strings; the
+mini-grid layout in the Library tab is the easiest way to identify each board.
+Glyph names are derived from their d4data file basenames (e.g. `Rare_001_Intelligence_Main`).
+
+Refresh the bundled data with `scripts/build-paragon-data.mjs` against a fresh
+d4data checkout, or load any conformant JSON via the Library tab's
+*Load dataset…* button.
 
 ### Dataset schema
 
