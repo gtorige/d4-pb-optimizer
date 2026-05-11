@@ -63,6 +63,95 @@ async function runOptimize() {
   }
 }
 
+function buildSummary(out) {
+  const state = getState();
+  const wrap = document.createElement("div");
+  wrap.className = "result-summary";
+
+  // 1. Stats grouped by category
+  const groups = { attr: {}, magic: {}, rare: {}, legendary: {}, glyph: {}, other: {} };
+  for (const [k, v] of Object.entries(out.stats)) {
+    if (!v) continue;
+    const prefix = k.split("_")[0];
+    const target = groups[prefix] || groups.other;
+    target[k] = v;
+  }
+  const statsSec = document.createElement("div");
+  statsSec.className = "result-section";
+  const sh = document.createElement("h4"); sh.textContent = "Stats by category"; statsSec.appendChild(sh);
+  for (const [name, obj] of Object.entries(groups)) {
+    const keys = Object.keys(obj);
+    if (!keys.length) continue;
+    const line = document.createElement("div");
+    line.className = "stats-line stats-" + name;
+    const total = Object.values(obj).reduce((a, b) => a + (+b || 0), 0);
+    line.innerHTML = `<strong>${name}</strong> (Σ ${total.toFixed(2)}): ` +
+      keys.map(k => `${k.replace(/^[a-z]+_/, "")}=${(+obj[k]).toFixed(2)}`).join(", ");
+    statsSec.appendChild(line);
+  }
+  wrap.appendChild(statsSec);
+
+  // 2. Activated nodes per board, grouped by tier, with their names
+  const tiersSec = document.createElement("div");
+  tiersSec.className = "result-section";
+  const th = document.createElement("h4"); th.textContent = "Activated nodes by board"; tiersSec.appendChild(th);
+  for (let bi = 0; bi < out.ctx.chain.length; bi++) {
+    const slot = out.ctx.chain[bi];
+    const board = state.boards[slot.boardIndex];
+    const rotatedCells = out.ctx.idx[bi].rotated?.cells || board.cells;
+    const act = out.solution.activated[bi];
+    const byTier = { legendary: [], rare: [], magic: [], socket: [], normal: [], gate: [], start: [] };
+    let totalNorm = 0;
+    for (const k of act) {
+      const [r, c] = k.split(",").map(Number);
+      const cell = rotatedCells[r]?.[c];
+      if (!cell) continue;
+      const label = cell.label || cell.nodeId || cell.type;
+      if (byTier[cell.type]) byTier[cell.type].push(label);
+      if (cell.type === "normal") totalNorm++;
+    }
+    const boardDiv = document.createElement("div");
+    boardDiv.className = "result-board-summary";
+    const head = document.createElement("div");
+    head.innerHTML = `<strong>${bi + 1}. ${board.name}</strong> — ${act.size} pts ` +
+      (slot.pinnedGlyph ? ` · glyph: ${state.glyphs.find(g => g.id === slot.pinnedGlyph)?.name ?? "?"}` :
+       out.solution.glyphs[bi] ? ` · glyph: ${state.glyphs.find(g => g.id === out.solution.glyphs[bi])?.name ?? "?"}` : "");
+    boardDiv.appendChild(head);
+
+    for (const tier of ["legendary", "rare", "magic"]) {
+      if (!byTier[tier].length) continue;
+      const counts = countLabels(byTier[tier]);
+      const line = document.createElement("div");
+      line.className = "tier-line tier-" + tier;
+      line.innerHTML = `<span class="tier-tag">${tier}</span> ` +
+        Object.entries(counts).map(([n, c]) => c > 1 ? `${n} ×${c}` : n).join(", ");
+      boardDiv.appendChild(line);
+    }
+    if (byTier.socket.length) {
+      const line = document.createElement("div");
+      line.className = "tier-line tier-socket";
+      line.innerHTML = `<span class="tier-tag">socket</span> ×${byTier.socket.length}`;
+      boardDiv.appendChild(line);
+    }
+    if (totalNorm) {
+      const line = document.createElement("div");
+      line.className = "tier-line tier-normal";
+      line.textContent = `normal nodes: ${totalNorm}`;
+      boardDiv.appendChild(line);
+    }
+    tiersSec.appendChild(boardDiv);
+  }
+  wrap.appendChild(tiersSec);
+
+  return wrap;
+}
+
+function countLabels(arr) {
+  const m = {};
+  for (const x of arr) m[x] = (m[x] || 0) + 1;
+  return m;
+}
+
 function renderResult(out) {
   const result = $("#run-result");
   result.innerHTML = "";
@@ -83,10 +172,7 @@ function renderResult(out) {
     out.rotations.map((q, i) => `#${i + 1}=${q * 90}°`).join(", ");
   result.appendChild(rotLine);
 
-  const statsDiv = document.createElement("div");
-  statsDiv.innerHTML = "<strong>Stats:</strong> " +
-    Object.entries(out.stats).map(([k, v]) => `${k}=${(+v).toFixed(2)}`).join(", ");
-  result.appendChild(statsDiv);
+  result.appendChild(buildSummary(out));
 
   const apply = document.createElement("button");
   apply.textContent = "Apply rotations to chain";
