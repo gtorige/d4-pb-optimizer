@@ -650,8 +650,13 @@ export async function optimize(state, opts) {
     const T = Math.max(1e-4, T0 * (1 - i / N));
     const mv = proposeMove(cur, ctx, rand);
     if (!mv) continue;
+    const ptsBefore = totalPoints(cur);
     mv.apply();
-    if (totalPoints(cur) > ctx.pointBudget) { mv.undo(); continue; }
+    const ptsAfter = totalPoints(cur);
+    // Reject moves that INCREASE the point count past the budget. Don't reject
+    // moves that decrease (we want to climb down toward the budget) or moves
+    // that keep the count constant (swaps, rotations, glyph reassigns).
+    if (ptsAfter > ptsBefore && ptsAfter > ctx.pointBudget) { mv.undo(); continue; }
     autoFillGlyphSockets(cur, ctx);
     const ns = score(cur, ctx);
     const delta = ns - curScore;
