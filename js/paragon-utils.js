@@ -34,12 +34,17 @@ export function statKeyFromId(id) {
   return tier + "_" + rest;
 }
 
-/** Default stat contribution per node (1 unit; user weights via buckets). */
+/** Default stat contribution per node (1 unit; user weights via buckets).
+ *  Each non-empty node also contributes a generic tier counter (magic_count,
+ *  rare_count, legendary_count, attr_count) so default damage buckets can
+ *  give a flat per-tier bonus without enumerating every specific node id. */
 export function defaultStatsFromId(id) {
   const k = statKeyFromId(id);
   if (!k) return {};
-  // Normal attribute nodes contribute 5 (matches game's +5 per normal node).
-  if (k.startsWith("attr_")) return { [k]: 5 };
+  if (k.startsWith("attr_")) return { [k]: 5, attr_count: 5 };
+  if (k.startsWith("magic_")) return { [k]: 1, magic_count: 1 };
+  if (k.startsWith("rare_")) return { [k]: 1, rare_count: 1 };
+  if (k.startsWith("legendary_")) return { [k]: 1, legendary_count: 1 };
   return { [k]: 1 };
 }
 
