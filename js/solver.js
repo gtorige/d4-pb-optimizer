@@ -307,6 +307,8 @@ function tryRemove(solution, ctx, rand) {
     for (const k of act) {
       // never remove a required cell (user explicitly asked for it)
       if (idx.requiredKeys && idx.requiredKeys.has(k)) continue;
+      // never remove the start cell — it's the anchor for board 0
+      if (idx.startKey === k) continue;
       candidates.push({ bi, k, entry, idx });
     }
   }
