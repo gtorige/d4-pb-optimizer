@@ -572,7 +572,12 @@ export async function optimize(state, opts) {
     autoFillGlyphSockets(cur, ctx);
     const ns = score(cur, ctx);
     const delta = ns - curScore;
-    if (delta >= 0 || rand() < Math.exp(delta / (T * Math.max(1, curScore)))) {
+    // Accept improving moves always; accept worsening moves with Boltzmann
+    // probability exp(delta / (T * scaleRef)). scaleRef is the per-cell delta
+    // magnitude, not the absolute curScore — using curScore made T effectively
+    // infinite and the SA degenerated into a random walk.
+    const scaleRef = Math.max(1, Math.abs(ctx.baseValue || 100) * 0.01);
+    if (delta >= 0 || rand() < Math.exp(delta / (T * scaleRef))) {
       curScore = ns;
       if (ns > bestScore) {
         bestScore = ns;
