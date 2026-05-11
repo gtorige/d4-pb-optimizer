@@ -43,18 +43,35 @@ export function listBoards(className) {
   return cls ? Object.keys(cls.boards || {}) : [];
 }
 
-/** List of glyphs available across the bundled dataset. Glyphs in the d4data
- *  dump are stored under Generic.glyphs (they're class-shared at the data
- *  layer); fall back to scanning any class bucket if Generic is empty. */
-export function listGlyphs() {
+/** d4data class index ordering inside fUsableByClass arrays. Deduced from the
+ *  class snoIDs in PlayerClass/*.pcl.json (lowest snoID = idx 0). */
+export const CLASS_GLYPH_INDEX = {
+  Sorcerer: 0,
+  Druid: 1,
+  Barbarian: 2,
+  Rogue: 3,
+  Necromancer: 4,
+  Spiritborn: 5,
+  Paladin: 6,
+  Warlock: 7,
+};
+
+/** List of glyphs in the bundled dataset. If `className` is provided, the list
+ *  is filtered to glyphs flagged usable by that class via fUsableByClass. */
+export function listGlyphs(className) {
   const sources = ["Generic", ...classes()];
   const seen = new Set();
   const out = [];
+  const idx = className != null ? CLASS_GLYPH_INDEX[className] : null;
   for (const cls of sources) {
     const map = _dataset[cls]?.glyphs;
     if (!map) continue;
     for (const [id, g] of Object.entries(map)) {
       if (seen.has(id)) continue;
+      if (idx != null && Array.isArray(g.usableByClass) && g.usableByClass.length === 8) {
+        const anyClass = g.usableByClass.some(v => v === 1);
+        if (anyClass && g.usableByClass[idx] !== 1) continue;
+      }
       seen.add(id);
       out.push({ id, ...g });
     }
@@ -104,6 +121,7 @@ export function importBoard(className, boardName) {
       if (type === "gate") cell.gateDir = inferGateDir(tr, tc, size);
       const info = lookupNode(className, id);
       cell.label = info?.name || deriveLabel(id);
+      if (info?.desc) cell.desc = info.desc;
       cells[tr][tc] = cell;
     }
   }
