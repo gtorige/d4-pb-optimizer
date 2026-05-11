@@ -1,6 +1,7 @@
 // UI for the bundled paragon-board library.
 import { getState, setState, defaultChainSlot, defaultFilters } from "./state.js";
 import { classes, getDataset, listBoards, listGlyphs, importBoard, importGlyph, lookupNode, setDataset, datasetIsBundled } from "./library.js";
+import { rotateBoard } from "./rotation.js";
 
 const $ = (s) => document.querySelector(s);
 const MAX_CHAIN = 5;
@@ -275,75 +276,137 @@ function renderChain() {
 
 function renderNodePanel(pos, slot, board) {
   const wrap = document.createElement("div");
-  wrap.className = "node-panel";
+  wrap.className = "node-panel pick-panel";
 
-  const intro = document.createElement("p");
-  intro.className = "hint";
-  intro.textContent = "Check a node to mark it as REQUIRED — the optimizer will route through it. " +
-    "Unchecked nodes can still be used as bridges when needed.";
-  wrap.appendChild(intro);
+  // Apply the slot's rotation so what the user clicks visually matches the
+  // mini-grid they see in the chain card and the result panel.
+  const rotated = slot.rotation ? rotateBoard(board, slot.rotation) : board;
+  const sel = slot.selectedNodes || {};
 
-  // Group cells by tier (legendary first, then rare, then magic). Use the unrotated
-  // board so positions match the stored selectedNodes keys (srcKey).
-  const groups = { legendary: [], rare: [], magic: [] };
-  for (let r = 0; r < board.size; r++) {
-    for (let c = 0; c < board.size; c++) {
-      const cell = board.cells[r][c];
-      if (!cell || !groups[cell.type]) continue;
-      groups[cell.type].push({ r, c, cell });
+  // Per-tier counts
+  const counts = { legendary: { total: 0, required: 0 }, rare: { total: 0, required: 0 }, magic: { total: 0, required: 0 } };
+  for (let r = 0; r < rotated.size; r++) {
+    for (let c = 0; c < rotated.size; c++) {
+      const cell = rotated.cells[r][c];
+      if (!cell || !counts[cell.type]) continue;
+      counts[cell.type].total++;
+      if (sel[cell.srcKey] === true) counts[cell.type].required++;
     }
   }
 
-  const sel = slot.selectedNodes || {};
-  const countRequired = (items) => items.filter(x => sel[x.cell.srcKey] === true).length;
-
+  // Header: per-tier summary chips + bulk-clear button
+  const header = document.createElement("div");
+  header.className = "pick-header";
   for (const tier of ["legendary", "rare", "magic"]) {
-    if (!groups[tier].length) continue;
-    const section = document.createElement("div");
-    section.className = "node-section node-section-" + tier;
-    const reqN = countRequired(groups[tier]);
-    const h = document.createElement("h5");
-    h.textContent = `${tier} — ${reqN} required / ${groups[tier].length} available`;
-    section.appendChild(h);
+    const ct = counts[tier];
+    if (ct.total === 0) continue;
+    const chip = document.createElement("span");
+    chip.className = "pick-chip pick-chip-" + tier;
+    chip.textContent = `${ct.required} / ${ct.total} ${tier}`;
+    chip.title = `Click "all" to require every ${tier} on this board`;
+    chip.onclick = (e) => {
+      e.stopPropagation();
+      bulkSetRequiredForTier(pos, board, tier, ct.required < ct.total);
+    };
+    header.appendChild(chip);
+  }
+  const clearBtn = btn("Clear all", () => setState(st => updateSlot(st, pos, { selectedNodes: {} })));
+  clearBtn.className = "pick-clear";
+  header.appendChild(clearBtn);
+  wrap.appendChild(header);
 
-    const bulk = document.createElement("div"); bulk.className = "node-bulk";
-    bulk.appendChild(btn("All required", () => bulkSetRequired(pos, groups[tier], true)));
-    bulk.appendChild(btn("Clear required", () => bulkSetRequired(pos, groups[tier], false)));
-    section.appendChild(bulk);
+  const hint = document.createElement("p");
+  hint.className = "hint pick-hint";
+  hint.innerHTML = `Click <span class="pick-leg-swatch swatch-magic"></span> magic / <span class="pick-leg-swatch swatch-rare"></span> rare / <span class="pick-leg-swatch swatch-legendary"></span> legendary cells in the grid to mark them as REQUIRED. Click again to unmark. Required cells are outlined in gold.`;
+  wrap.appendChild(hint);
 
-    for (const { r, c, cell } of groups[tier]) {
-      const srcKey = cell.srcKey || (r + "," + c);
-      const lbl = document.createElement("label");
-      lbl.className = "node-item";
-      if (sel[srcKey] === true) lbl.classList.add("required");
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.checked = sel[srcKey] === true;
-      cb.onchange = () => setState(st => {
-        const slot = st.chain[pos];
-        const nextSel = { ...(slot.selectedNodes || {}) };
-        if (cb.checked) nextSel[srcKey] = true;
-        else delete nextSel[srcKey];
+  // The interactive mini-grid
+  const grid = document.createElement("div");
+  grid.className = "pick-grid";
+  grid.style.gridTemplateColumns = `repeat(${rotated.size}, var(--pick-cell, 16px))`;
+  for (let r = 0; r < rotated.size; r++) {
+    for (let c = 0; c < rotated.size; c++) {
+      const cell = rotated.cells[r][c];
+      const el = document.createElement("div");
+      el.className = "pick-cell " + (cell?.type || "empty");
+      const pickable = cell && (cell.type === "magic" || cell.type === "rare" || cell.type === "legendary");
+      if (cell?.nodeId) {
+        const parts = [cell.label || cell.nodeId];
+        if (cell.desc) parts.push(cell.desc);
+        el.title = parts.join("\n");
+      }
+      if (pickable) {
+        el.classList.add("pickable");
+        if (sel[cell.srcKey] === true) el.classList.add("required");
+        el.onclick = () => setState(st => {
+          const slotNow = st.chain[pos];
+          const nextSel = { ...(slotNow.selectedNodes || {}) };
+          if (nextSel[cell.srcKey] === true) delete nextSel[cell.srcKey];
+          else nextSel[cell.srcKey] = true;
+          return updateSlot(st, pos, { selectedNodes: nextSel });
+        });
+      }
+      grid.appendChild(el);
+    }
+  }
+  wrap.appendChild(grid);
+
+  // Required-nodes list below the grid (with legendary descriptions)
+  const required = [];
+  for (let r = 0; r < rotated.size; r++) {
+    for (let c = 0; c < rotated.size; c++) {
+      const cell = rotated.cells[r][c];
+      if (cell?.srcKey && sel[cell.srcKey] === true) required.push(cell);
+    }
+  }
+  if (required.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "hint";
+    empty.textContent = "(no nodes required on this board yet)";
+    wrap.appendChild(empty);
+  } else {
+    const list = document.createElement("div");
+    list.className = "pick-required-list";
+    const h = document.createElement("h6");
+    h.textContent = `Required nodes (${required.length}):`;
+    list.appendChild(h);
+    // sort: legendaries first, then rare, then magic
+    const tierRank = { legendary: 0, rare: 1, magic: 2 };
+    required.sort((a, b) => (tierRank[a.type] ?? 9) - (tierRank[b.type] ?? 9));
+    for (const cell of required) {
+      const item = document.createElement("div");
+      item.className = "pick-required-item pick-required-" + cell.type;
+      const head = document.createElement("div");
+      head.className = "pick-required-head";
+      const sw = document.createElement("span");
+      sw.className = "pick-leg-swatch swatch-" + cell.type;
+      head.appendChild(sw);
+      const name = document.createElement("strong");
+      name.textContent = cell.label || cell.nodeId || "?";
+      head.appendChild(name);
+      const rm = document.createElement("button");
+      rm.className = "pick-required-rm";
+      rm.textContent = "✕";
+      rm.onclick = () => setState(st => {
+        const slotNow = st.chain[pos];
+        const nextSel = { ...(slotNow.selectedNodes || {}) };
+        delete nextSel[cell.srcKey];
         return updateSlot(st, pos, { selectedNodes: nextSel });
       });
-      lbl.appendChild(cb);
-      const text = document.createElement("span");
-      const label = cell.label || cell.nodeId || "?";
-      text.textContent = " " + label;
-      if (cell.nodeId) lbl.title = cell.nodeId;
-      lbl.appendChild(text);
+      head.appendChild(rm);
+      item.appendChild(head);
       if (cell.type === "legendary" && cell.desc) {
         const d = document.createElement("div");
         d.className = "node-desc";
         d.textContent = cell.desc;
-        lbl.appendChild(d);
+        item.appendChild(d);
       }
-      section.appendChild(lbl);
+      list.appendChild(item);
     }
-
-    wrap.appendChild(section);
+    wrap.appendChild(list);
   }
-  if (!groups.legendary.length && !groups.rare.length && !groups.magic.length) {
+
+  if (counts.legendary.total === 0 && counts.rare.total === 0 && counts.magic.total === 0) {
     const empty = document.createElement("div"); empty.className = "hint";
     empty.textContent = "(no magic/rare/legendary nodes on this board)";
     wrap.appendChild(empty);
@@ -351,15 +414,17 @@ function renderNodePanel(pos, slot, board) {
   return wrap;
 }
 
-function bulkSetRequired(pos, items, required) {
+function bulkSetRequiredForTier(pos, board, tier, required) {
   setState(st => {
     const slot = st.chain[pos];
     const nextSel = { ...(slot.selectedNodes || {}) };
-    for (const { cell } of items) {
-      const k = cell.srcKey;
-      if (!k) continue;
-      if (required) nextSel[k] = true;
-      else delete nextSel[k];
+    for (let r = 0; r < board.size; r++) {
+      for (let c = 0; c < board.size; c++) {
+        const cell = board.cells[r][c];
+        if (!cell || cell.type !== tier || !cell.srcKey) continue;
+        if (required) nextSel[cell.srcKey] = true;
+        else delete nextSel[cell.srcKey];
+      }
     }
     return updateSlot(st, pos, { selectedNodes: nextSel });
   });
