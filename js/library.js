@@ -1,6 +1,6 @@
 // Convert raw paragonData entries into the tool's Board/Glyph shapes.
 import { paragonData as bundledData } from "./paragon-data.js";
-import { cellTypeFromId, defaultStatsFromId, inferGateDir, statKeyFromId } from "./paragon-utils.js";
+import { cellTypeFromId, defaultStatsFromId, deriveLabel, inferGateDir, statKeyFromId } from "./paragon-utils.js";
 
 const DATASET_KEY = "d4pb_dataset_v1";
 
@@ -96,7 +96,7 @@ export function importBoard(className, boardName) {
       };
       if (type === "gate") cell.gateDir = inferGateDir(tr, tc, size);
       const info = lookupNode(className, id);
-      if (info?.name) cell.label = info.name;
+      cell.label = info?.name || deriveLabel(id);
       cells[tr][tc] = cell;
     }
   }
