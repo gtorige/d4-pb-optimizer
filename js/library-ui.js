@@ -79,6 +79,18 @@ function classifyId(id) {
   return "normal";
 }
 
+/** Find srcKeys of cells matching a predicate on a Board. */
+function findCells(board, pred) {
+  const out = [];
+  for (let r = 0; r < board.size; r++) {
+    for (let c = 0; c < board.size; c++) {
+      const cell = board.cells[r][c];
+      if (cell && pred(cell)) out.push(cell.srcKey || (r + "," + c));
+    }
+  }
+  return out;
+}
+
 function addBoardToChain(className, boardName) {
   setState(st => {
     if (st.chain.length >= MAX_CHAIN) {
@@ -88,11 +100,16 @@ function addBoardToChain(className, boardName) {
     const board = importBoard(className, boardName);
     const boards = [...st.boards, board];
     const newIdx = boards.length - 1;
+    // Priority defaults: every legendary on this board is auto-required.
+    // The user can uncheck them in Pick-nodes if they don't want one.
+    const selectedNodes = {};
+    for (const k of findCells(board, c => c.type === "legendary")) selectedNodes[k] = true;
+    const slot = { ...defaultChainSlot(newIdx), selectedNodes };
     return {
       ...st,
       selectedClass: className,
       boards,
-      chain: [...st.chain, defaultChainSlot(newIdx)],
+      chain: [...st.chain, slot],
     };
   });
 }
@@ -213,7 +230,23 @@ function renderChain() {
       if (slot.pinnedGlyph === g.id) o.selected = true;
       glyphSel.appendChild(o);
     }
-    glyphSel.onchange = () => setState(st => updateSlot(st, pos, { pinnedGlyph: glyphSel.value || null }));
+    glyphSel.onchange = () => setState(st => {
+      const newPin = glyphSel.value || null;
+      const slotNow = st.chain[pos];
+      const boardNow = st.boards[slotNow.boardIndex];
+      const nextSel = { ...(slotNow.selectedNodes || {}) };
+      // Pin a glyph -> auto-mark the first socket as required.
+      // Unpin -> drop any auto-marked socket(s).
+      const socketKeys = boardNow ? findCells(boardNow, c => c.type === "socket") : [];
+      if (newPin) {
+        if (socketKeys.length && !socketKeys.some(k => nextSel[k] === true)) {
+          nextSel[socketKeys[0]] = true;
+        }
+      } else {
+        for (const k of socketKeys) delete nextSel[k];
+      }
+      return updateSlot(st, pos, { pinnedGlyph: newPin, selectedNodes: nextSel });
+    });
     glyphLbl.appendChild(glyphSel);
     row1.appendChild(glyphLbl);
 
