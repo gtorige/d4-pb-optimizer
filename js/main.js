@@ -174,11 +174,27 @@ function renderResult(out) {
     `<strong>Points:</strong> ${out.totalPoints ?? "?"}/${out.ctx.pointBudget} &nbsp; ` +
     `<strong>Active boards:</strong> ${out.activeBoards.length} / ${out.ctx.chain.length}`;
   result.appendChild(head);
-  if (out.missingRequired) {
+  if (Array.isArray(out.dropped) && out.dropped.length) {
+    const warn = document.createElement("div");
+    warn.className = "warn";
+    const lines = out.dropped.map(d =>
+      `<li>board ${d.bi + 1} — <strong>${d.label}</strong> (${d.type})</li>`).join("");
+    warn.innerHTML =
+      `⚠ Budget too low for everything you marked. Dropped ${out.dropped.length} required node(s) ` +
+      `(lowest priority first: magic → rare → socket → legendary):<ul>${lines}</ul>` +
+      `Raise <em>Total paragon points</em> above ${out.pointBudget || "the current budget"} or unmark some nodes manually.`;
+    result.appendChild(warn);
+  } else if (out.missingRequired) {
     const warn = document.createElement("div");
     warn.className = "warn";
     warn.textContent = `⚠ ${out.missingRequired} required node(s) could not be routed — raise budget or check connectivity.`;
     result.appendChild(warn);
+  }
+  if (out.overBudget) {
+    const err = document.createElement("div");
+    err.className = "warn warn-strong";
+    err.textContent = `⛔ ${out.totalPoints} cells needed but only ${out.pointBudget} paragon points available — the minimum chain alone exceeds the budget.`;
+    result.appendChild(err);
   }
 
   const state = getState();
