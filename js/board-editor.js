@@ -1,4 +1,4 @@
-import { getState, setState, makeBoard, resizeBoard } from "./state.js";
+import { getState, setState, makeBoard, resizeBoard, defaultChainSlot, defaultFilters } from "./state.js";
 
 let activatedOverlay = null; // {boardIndex: Set<"r,c">}
 
@@ -35,7 +35,9 @@ function renderBoardList() {
       if (!confirm(`Delete board "${b.name}"?`)) return;
       setState(st => {
         const boards = st.boards.filter((_, j) => j !== i);
-        const chain = st.chain.filter(j => j !== i).map(j => j > i ? j - 1 : j);
+        const chain = st.chain
+          .filter(slot => slot.boardIndex !== i)
+          .map(slot => ({ ...slot, boardIndex: slot.boardIndex > i ? slot.boardIndex - 1 : slot.boardIndex }));
         const boardIndex = Math.max(0, Math.min(st.selection.boardIndex, boards.length - 1));
         return { ...st, boards, chain, selection: { ...st.selection, boardIndex, cell: null } };
       });
@@ -49,9 +51,10 @@ function renderChain() {
   const s = getState();
   const ol = $("#board-chain");
   ol.innerHTML = "";
-  s.chain.forEach((boardIdx, pos) => {
+  s.chain.forEach((slot, pos) => {
     const li = document.createElement("li");
-    li.textContent = s.boards[boardIdx]?.name ?? "?";
+    const rotTxt = slot.rotation ? ` (${slot.rotation * 90}°)` : "";
+    li.textContent = (s.boards[slot.boardIndex]?.name ?? "?") + rotTxt;
     const up = document.createElement("button"); up.textContent = "↑"; up.style.marginLeft = "4px";
     up.onclick = () => setState(st => {
       if (pos === 0) return st;
@@ -78,7 +81,7 @@ function renderChain() {
   sel.onchange = () => {
     if (sel.value === "") return;
     const i = parseInt(sel.value, 10);
-    setState(st => ({ ...st, chain: [...st.chain, i] }));
+    setState(st => ({ ...st, chain: [...st.chain, defaultChainSlot(i)] }));
   };
   ol.appendChild(sel);
 }
@@ -154,8 +157,28 @@ function renderNodeEditor() {
   host.innerHTML = "";
   const head = document.createElement("div");
   head.innerHTML = `<strong>(${r}, ${c})</strong> — ${cell.type}` +
-    (cell.gateDir ? ` [${cell.gateDir}]` : "");
+    (cell.gateDir ? ` [${cell.gateDir}]` : "") +
+    (cell.label ? ` — <em>${cell.label}</em>` : "");
   host.appendChild(head);
+
+  if (cell.type !== "empty" && cell.type !== "start") {
+    const lbl = document.createElement("label");
+    lbl.className = "cell-disable";
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = !!cell.disabled;
+    cb.onchange = () => setState(st => {
+      st.boards[st.selection.boardIndex].cells[r][c].disabled = cb.checked;
+      return { ...st };
+    });
+    lbl.append(cb, document.createTextNode(" Block in optimizer (per-node override)"));
+    host.appendChild(lbl);
+  }
+
+  if (cell.nodeId) {
+    const idLine = document.createElement("div"); idLine.className = "hint";
+    idLine.textContent = "Node id: " + cell.nodeId;
+    host.appendChild(idLine);
+  }
 
   if (cell.type === "gate") {
     const sel = document.createElement("select");

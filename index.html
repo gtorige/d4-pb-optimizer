@@ -10,7 +10,8 @@
   <header>
     <h1>Diablo 4 Paragon Optimizer</h1>
     <nav>
-      <button data-tab="boards" class="tab active">Boards</button>
+      <button data-tab="library" class="tab active">Library</button>
+      <button data-tab="boards" class="tab">Boards</button>
       <button data-tab="glyphs" class="tab">Glyphs</button>
       <button data-tab="formula" class="tab">Damage Formula</button>
       <button data-tab="optimize" class="tab">Optimize</button>
@@ -19,8 +20,43 @@
   </header>
 
   <main>
+    <!-- Library tab -->
+    <section id="tab-library" class="tab-panel active">
+      <div class="library-head">
+        <h2>Paragon library</h2>
+        <p class="hint">
+          Bundled data from <a href="https://github.com/Lothrik/diablo4-build-calc" target="_blank" rel="noopener">Lothrik/diablo4-build-calc</a>
+          (datamined). Pick a class, add up to 5 boards to your chain and pick glyphs. Each chain slot
+          has its own rotation and Magic / Rare / Legendary filters.
+        </p>
+        <div class="lib-class">
+          <label>Class:
+            <select id="lib-class"></select>
+          </label>
+          <label><input type="checkbox" id="lib-try-rotations" /> Optimizer may rotate boards (0/90/180/270)</label>
+        </div>
+      </div>
+
+      <div class="library-grid">
+        <div>
+          <h3>Boards</h3>
+          <div id="lib-board-cards" class="lib-cards"></div>
+        </div>
+        <div>
+          <h3>Glyphs</h3>
+          <div id="lib-glyph-cards" class="lib-cards"></div>
+        </div>
+      </div>
+
+      <h3>Current chain (up to 5)</h3>
+      <ol id="lib-chain" class="lib-chain"></ol>
+
+      <h3>Selected glyphs</h3>
+      <ul id="lib-selected-glyphs" class="lib-selected-glyphs"></ul>
+    </section>
+
     <!-- Boards tab -->
-    <section id="tab-boards" class="tab-panel active">
+    <section id="tab-boards" class="tab-panel">
       <aside class="sidebar">
         <h2>Boards</h2>
         <ul id="board-list"></ul>
@@ -85,6 +121,7 @@
         <label>SA iterations: <input id="sa-iter" type="number" min="1000" value="40000" step="1000" /></label>
         <label>Start temp: <input id="sa-temp" type="number" min="0" value="2" step="0.1" /></label>
         <label>Seed: <input id="sa-seed" type="number" value="1" /></label>
+        <label><input id="opt-rotations" type="checkbox" /> Try rotations</label>
         <button id="run-optimize">Run optimizer</button>
         <button id="stop-optimize" disabled>Stop</button>
       </div>

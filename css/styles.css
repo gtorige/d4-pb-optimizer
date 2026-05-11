@@ -86,3 +86,39 @@ main { padding: 16px; }
 .result-board .grid .cell { cursor: default; }
 
 #json-preview { background: #0e0a07; border: 1px solid var(--border); padding: 8px; max-height: 50vh; overflow: auto; font-size: 11px; }
+
+/* Library tab */
+.library-head { background: var(--panel); border: 1px solid var(--border); padding: 12px; border-radius: 4px; }
+.lib-class { margin-top: 8px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+.library-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
+.library-grid h3 { margin: 0 0 6px; color: var(--accent); font-size: 14px; }
+.lib-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; max-height: 50vh; overflow: auto; padding-right: 4px; }
+.lib-card { background: var(--panel-2); border: 1px solid var(--border); padding: 8px; border-radius: 4px; display: flex; flex-direction: column; gap: 6px; }
+.lib-card h4 { margin: 0; font-size: 13px; color: var(--accent); }
+.lib-mini-grid { display: grid; gap: 0; align-self: center; }
+.mini-cell { width: var(--mini, 4px); height: var(--mini, 4px); background: #0e0a07; }
+.mini-cell.normal { background: var(--normal); }
+.mini-cell.magic { background: var(--magic); }
+.mini-cell.rare { background: var(--rare); }
+.mini-cell.legendary { background: var(--legendary); }
+.mini-cell.socket { background: var(--socket); }
+.mini-cell.gate { background: var(--gate); }
+.mini-cell.start { background: var(--start); }
+.lib-glyph-card { font-size: 12px; }
+.lib-glyph-desc { margin: 4px 0; color: var(--text); }
+.lib-glyph-bonus { margin: 4px 0; color: var(--accent); }
+
+.lib-chain { background: var(--panel); border: 1px solid var(--border); padding: 12px; border-radius: 4px; list-style: none; padding-left: 12px; }
+.lib-chain li { margin: 6px 0; }
+.chain-slot { display: grid; grid-template-columns: 2fr 1fr 1.5fr auto; gap: 12px; align-items: center; padding: 6px 8px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 3px; }
+.chain-head { font-size: 13px; }
+.chain-control { font-size: 12px; }
+.chain-filters { display: flex; gap: 8px; font-size: 12px; }
+.chain-filters label { display: flex; align-items: center; gap: 3px; }
+.chain-buttons { display: flex; gap: 4px; }
+.chain-empty { color: var(--muted); font-style: italic; font-size: 12px; }
+
+.lib-selected-glyphs { list-style: none; padding-left: 12px; }
+.lib-selected-glyphs li { padding: 3px 0; }
+
+.cell-disable { display: block; margin: 6px 0; font-size: 12px; }

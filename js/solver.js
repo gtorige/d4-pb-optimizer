@@ -1,7 +1,9 @@
 // Simulated-annealing paragon-route + glyph-placement solver.
 import { evaluate } from "./damage.js";
+import { rotateBoard, rotateKey } from "./rotation.js";
 
 /** @typedef {import('./state.js').AppState} AppState */
+/** @typedef {import('./state.js').ChainSlot} ChainSlot */
 
 const key = (r, c) => r + "," + c;
 const parseKey = (k) => k.split(",").map(Number);
@@ -17,19 +19,32 @@ function rng(seed) {
   };
 }
 
-/** Precompute per-board metadata. */
-function indexBoard(board) {
-  const size = board.size;
-  const cells = board.cells;
-  const types = new Map();      // key -> cell type
-  const stats = new Map();      // key -> stats record (only if non-empty)
-  const startKey = [];          // [key] of start cell
-  const gateKeys = [];          // gates
-  const socketKeys = [];        // sockets
-  const magicKeys = [];         // magic cells
+/** Returns true iff a cell should be treated as activatable given the slot's filters. */
+function passesFilter(cell, filters) {
+  if (!cell || cell.type === "empty") return false;
+  if (cell.disabled) return false;
+  if (!filters) return true;
+  if (cell.type === "magic" && !filters.magic) return false;
+  if (cell.type === "rare" && !filters.rare) return false;
+  if (cell.type === "legendary" && !filters.legendary) return false;
+  // start / gate / socket / normal always pass; user can still block individually via cell.disabled
+  return true;
+}
+
+/** Precompute per-board metadata for a given slot (handles rotation + filters). */
+function indexSlot(board, slot) {
+  const rotated = slot.rotation ? rotateBoard(board, slot.rotation) : board;
+  const size = rotated.size;
+  const cells = rotated.cells;
+  const types = new Map();
+  const stats = new Map();
+  const startKey = [];
+  const gateKeys = [];
+  const socketKeys = [];
+  const magicKeys = [];
   for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) {
     const cell = cells[r][c];
-    if (!cell || cell.type === "empty") continue;
+    if (!passesFilter(cell, slot.filters)) continue;
     const k = key(r, c);
     types.set(k, cell.type);
     if (cell.stats && Object.keys(cell.stats).length) stats.set(k, cell.stats);
@@ -38,7 +53,7 @@ function indexBoard(board) {
     if (cell.type === "socket") socketKeys.push(k);
     if (cell.type === "magic") magicKeys.push(k);
   }
-  return { size, types, stats, startKey: startKey[0] ?? null, gateKeys, socketKeys, magicKeys };
+  return { size, types, stats, startKey: startKey[0] ?? null, gateKeys, socketKeys, magicKeys, rotated };
 }
 
 function neighbors(k, size) {
@@ -60,9 +75,8 @@ function chebyshevWithin(centerKey, R, size) {
   return out;
 }
 
-/** BFS-check that `activated` minus a removed cell is still connected, anchored at entry. */
-function isConnectedAfterRemove(activated, removedKey, entryKey, size, idx) {
-  if (removedKey === entryKey) return activated.size === 1; // can only remove entry if board empties
+function isConnectedAfterRemove(activated, removedKey, entryKey, size) {
+  if (removedKey === entryKey) return activated.size === 1;
   const start = entryKey;
   if (!activated.has(start)) return false;
   const seen = new Set([start]);
@@ -76,18 +90,15 @@ function isConnectedAfterRemove(activated, removedKey, entryKey, size, idx) {
       seen.add(n); queue.push(n);
     }
   }
-  // After removal, the new activated set is activated \ {removedKey}; check we reached it all
   return seen.size === activated.size - 1;
 }
 
-/** Pick a valid entry for a board's activated set: start cell, or any activated gate. */
 function chooseEntry(activated, idx) {
   if (idx.startKey && activated.has(idx.startKey)) return idx.startKey;
   for (const g of idx.gateKeys) if (activated.has(g)) return g;
   return null;
 }
 
-/** Compute total stats for the whole chain given a solution. */
 function totalStats(solution, ctx) {
   const stats = {};
   const add = (s) => { if (!s) return; for (const k in s) stats[k] = (stats[k] || 0) + s[k]; };
@@ -96,14 +107,12 @@ function totalStats(solution, ctx) {
     const act = solution.activated[bi];
     if (!act || act.size === 0) continue;
     for (const k of act) add(idx.stats.get(k));
-    // glyph contribution for this board
     const gId = solution.glyphs[bi];
     if (gId) {
       const glyph = ctx.glyphs.find(g => g.id === gId);
       const socket = solution.glyphSocket[bi];
       if (glyph && socket && act.has(socket)) {
         add(glyph.baseStats);
-        // magic count within radius among activated magic cells
         const within = chebyshevWithin(socket, ctx.glyphRadius, idx.size);
         let mcount = 0;
         for (const k of within) if (act.has(k) && idx.types.get(k) === "magic") mcount++;
@@ -129,14 +138,12 @@ function totalPoints(solution) {
   return n;
 }
 
-/** Initial solution: just entry node of board 0. */
 function initialSolution(ctx) {
   const activated = ctx.chain.map(() => new Set());
   const glyphs = ctx.chain.map(() => null);
   const glyphSocket = ctx.chain.map(() => null);
   const entry0 = ctx.idx[0].startKey || ctx.idx[0].gateKeys[0];
   if (entry0) activated[0].add(entry0);
-  // assign glyphs greedily in chain order
   let glyphPool = ctx.glyphs.map(g => g.id);
   for (let bi = 0; bi < ctx.chain.length && glyphPool.length; bi++) {
     glyphs[bi] = glyphPool.shift();
@@ -144,13 +151,11 @@ function initialSolution(ctx) {
   return { activated, glyphs, glyphSocket };
 }
 
-/** Frontier cells per board: empty (not-yet-activated, non-empty-type) cells adjacent to activated. */
 function frontierCells(bi, solution, ctx) {
   const idx = ctx.idx[bi];
   const act = solution.activated[bi];
   const out = [];
   if (act.size === 0) {
-    // first cell must be entry: start (board 0) or any gate
     if (bi === 0 && idx.startKey) out.push(idx.startKey);
     else for (const g of idx.gateKeys) out.push(g);
     return out;
@@ -160,7 +165,7 @@ function frontierCells(bi, solution, ctx) {
     for (const n of neighbors(k, idx.size)) {
       if (act.has(n)) continue;
       if (seen.has(n)) continue;
-      if (!idx.types.has(n)) continue; // empty
+      if (!idx.types.has(n)) continue;
       seen.add(n);
       out.push(n);
     }
@@ -169,7 +174,6 @@ function frontierCells(bi, solution, ctx) {
 }
 
 function activeBoards(solution, ctx) {
-  // a board is "active" iff its activated set non-empty AND prior board (if any) is active and has a gate activated
   const out = [];
   for (let bi = 0; bi < ctx.chain.length; bi++) {
     const act = solution.activated[bi];
@@ -180,7 +184,6 @@ function activeBoards(solution, ctx) {
       let hasGate = false;
       for (const g of prevIdx.gateKeys) if (prev.has(g)) { hasGate = true; break; }
       if (!hasGate) break;
-      // current board's set must contain at least one of its gates (the entry)
       let curHasGate = false;
       for (const g of ctx.idx[bi].gateKeys) if (act.has(g)) { curHasGate = true; break; }
       if (!curHasGate) break;
@@ -190,16 +193,14 @@ function activeBoards(solution, ctx) {
   return out;
 }
 
-/** Propose a move; returns {apply, undo, deltaCost} or null. */
 function proposeMove(solution, ctx, rand) {
-  const activeBoardIndices = ctx.chain.map((_, i) => i); // any board may be touched; chain validity is enforced by score=0 on invalid
   const move = rand();
-  // 70% add/remove/swap, 30% glyph
-  if (move < 0.30) return tryAdd(solution, ctx, rand);
-  if (move < 0.55) return tryRemove(solution, ctx, rand);
-  if (move < 0.75) return trySwap(solution, ctx, rand);
-  if (move < 0.90) return tryMoveGlyph(solution, ctx, rand);
-  return tryReassignGlyphs(solution, ctx, rand);
+  if (move < 0.25) return tryAdd(solution, ctx, rand);
+  if (move < 0.50) return tryRemove(solution, ctx, rand);
+  if (move < 0.70) return trySwap(solution, ctx, rand);
+  if (move < 0.82) return tryMoveGlyph(solution, ctx, rand);
+  if (move < 0.92) return tryReassignGlyphs(solution, ctx, rand);
+  return tryRotateBoard(solution, ctx, rand);
 }
 
 function tryAdd(solution, ctx, rand) {
@@ -221,17 +222,13 @@ function tryRemove(solution, ctx, rand) {
     if (act.size === 0) continue;
     const idx = ctx.idx[bi];
     const entry = chooseEntry(act, idx);
-    for (const k of act) {
-      // try to skip "expensive to recompute" by random sampling
-      candidates.push({ bi, k, entry, idx });
-    }
+    for (const k of act) candidates.push({ bi, k, entry, idx });
   }
   if (!candidates.length) return null;
-  // try a few random candidates
   for (let i = 0; i < 6; i++) {
     const cand = candidates[Math.floor(rand() * candidates.length)];
     const act = solution.activated[cand.bi];
-    if (!isConnectedAfterRemove(act, cand.k, cand.entry, cand.idx.size, cand.idx)) continue;
+    if (!isConnectedAfterRemove(act, cand.k, cand.entry, cand.idx.size)) continue;
     return {
       apply: () => {
         solution.activated[cand.bi].delete(cand.k);
@@ -256,7 +253,6 @@ function trySwap(solution, ctx, rand) {
 }
 
 function tryMoveGlyph(solution, ctx, rand) {
-  // pick a board with a glyph assigned, move its socket to another activated socket on the same board
   const candidates = [];
   for (let bi = 0; bi < ctx.chain.length; bi++) if (solution.glyphs[bi]) candidates.push(bi);
   if (!candidates.length) return null;
@@ -264,7 +260,7 @@ function tryMoveGlyph(solution, ctx, rand) {
   const idx = ctx.idx[bi];
   const act = solution.activated[bi];
   const availSockets = idx.socketKeys.filter(k => act.has(k));
-  const choices = availSockets.length ? [...availSockets, null] : [null]; // also allow unassign
+  const choices = availSockets.length ? [...availSockets, null] : [null];
   const newSocket = choices[Math.floor(rand() * choices.length)];
   const prev = solution.glyphSocket[bi];
   if (newSocket === prev) return null;
@@ -275,12 +271,10 @@ function tryMoveGlyph(solution, ctx, rand) {
 }
 
 function tryReassignGlyphs(solution, ctx, rand) {
-  // shuffle glyph→board mapping among active boards
   if (ctx.glyphs.length === 0) return null;
   const prevGlyphs = solution.glyphs.slice();
   const prevSockets = solution.glyphSocket.slice();
   const pool = ctx.glyphs.map(g => g.id);
-  // Fisher-Yates
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -299,30 +293,67 @@ function tryReassignGlyphs(solution, ctx, rand) {
   };
 }
 
-/**
- * Run simulated annealing.
- * @param {AppState} state
- * @param {{iterations:number, startTemp:number, seed:number, onProgress?:(info:any)=>void, shouldStop?:()=>boolean}} opts
- */
+/** Try rotating one of the boards by ±1 quarter-turn (when allowed). Clears activation
+ *  on that board because cell positions all shift; the SA will re-grow it from the gate. */
+function tryRotateBoard(solution, ctx, rand) {
+  if (!ctx.tryAllRotations) return null;
+  // Don't rotate board 0 (start cell); rotating loses the start-anchored entry semantics.
+  // Allow it only when board 0 also has gates the solver could use; otherwise restrict.
+  const candidates = [];
+  for (let bi = 0; bi < ctx.chain.length; bi++) {
+    if (bi === 0 && !ctx.idx[bi].gateKeys.length && ctx.idx[bi].startKey) continue;
+    candidates.push(bi);
+  }
+  if (!candidates.length) return null;
+  const bi = candidates[Math.floor(rand() * candidates.length)];
+  const dq = (rand() < 0.5 ? 1 : 3);
+  const prevSlot = ctx.chain[bi];
+  const prevIdx = ctx.idx[bi];
+  const prevAct = solution.activated[bi];
+  const prevSocket = solution.glyphSocket[bi];
+  const newRot = (((prevSlot.rotation || 0) + dq) % 4 + 4) % 4;
+  const newSlot = { ...prevSlot, rotation: newRot };
+  const newIdx = indexSlot(ctx.boards[prevSlot.boardIndex], newSlot);
+  // Remap activated keys through the rotation (preserves shape, just relocates cells).
+  // Since the cell content rotates with the grid, the same node remains activated.
+  const remappedAct = new Set();
+  for (const k of prevAct) remappedAct.add(rotateKey(k, dq, prevIdx.size));
+  const remappedSocket = prevSocket ? rotateKey(prevSocket, dq, prevIdx.size) : null;
+  return {
+    apply: () => {
+      ctx.chain[bi] = newSlot;
+      ctx.idx[bi] = newIdx;
+      solution.activated[bi] = remappedAct;
+      solution.glyphSocket[bi] = remappedSocket;
+    },
+    undo: () => {
+      ctx.chain[bi] = prevSlot;
+      ctx.idx[bi] = prevIdx;
+      solution.activated[bi] = prevAct;
+      solution.glyphSocket[bi] = prevSocket;
+    },
+  };
+}
+
 export async function optimize(state, opts) {
   const rand = rng(opts.seed | 0 || 1);
   const ctx = {
-    chain: state.chain,
-    idx: state.chain.map(bi => indexBoard(state.boards[bi])),
+    chain: state.chain.map(s => ({ ...s, filters: { ...s.filters, nodeOverrides: { ...(s.filters?.nodeOverrides || {}) } } })),
+    boards: state.boards,
+    idx: state.chain.map(slot => indexSlot(state.boards[slot.boardIndex], slot)),
     glyphs: state.glyphs,
     buckets: state.buckets,
     baseValue: state.baseValue,
     pointBudget: state.pointBudget,
     glyphRadius: state.glyphRadius,
+    tryAllRotations: !!state.tryAllRotations,
   };
 
-  // sanity
   if (ctx.chain.length === 0) throw new Error("Empty chain.");
   if (!ctx.idx[0].startKey && ctx.idx[0].gateKeys.length === 0)
     throw new Error("Board 1 has no start or gate cell.");
 
   let cur = initialSolution(ctx);
-  // place glyphs in initial sockets if any
   for (let bi = 0; bi < ctx.chain.length; bi++) {
     if (!cur.glyphs[bi]) continue;
     const act = cur.activated[bi];
@@ -332,6 +363,7 @@ export async function optimize(state, opts) {
 
   let curScore = score(cur, ctx);
   let best = cloneSolution(cur);
+  let bestRotations = ctx.chain.map(s => s.rotation || 0);
   let bestScore = curScore;
 
   const N = opts.iterations | 0 || 20000;
@@ -344,9 +376,7 @@ export async function optimize(state, opts) {
     const mv = proposeMove(cur, ctx, rand);
     if (!mv) continue;
     mv.apply();
-    // enforce budget
     if (totalPoints(cur) > ctx.pointBudget) { mv.undo(); continue; }
-    // try to auto-place glyph if its socket got newly activated
     autoFillGlyphSockets(cur, ctx);
     const ns = score(cur, ctx);
     const delta = ns - curScore;
@@ -355,6 +385,7 @@ export async function optimize(state, opts) {
       if (ns > bestScore) {
         bestScore = ns;
         best = cloneSolution(cur);
+        bestRotations = ctx.chain.map(s => s.rotation || 0);
       }
     } else {
       mv.undo();
@@ -371,6 +402,7 @@ export async function optimize(state, opts) {
     score: bestScore,
     stats: totalStats(best, ctx),
     activeBoards: activeBoards(best, ctx),
+    rotations: bestRotations,
     ctx,
   };
 }

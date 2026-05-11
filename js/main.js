@@ -2,7 +2,9 @@ import { getState, setState, subscribe, resetState, importState } from "./state.
 import * as boards from "./board-editor.js";
 import * as glyphs from "./glyph-editor.js";
 import * as damage from "./damage.js";
+import * as library from "./library-ui.js";
 import { optimize } from "./solver.js";
+import { rotateBoard } from "./rotation.js";
 
 const $ = (s) => document.querySelector(s);
 
@@ -31,6 +33,7 @@ async function runOptimize() {
     ...st,
     pointBudget: parseInt($("#point-budget").value, 10) || 1,
     glyphRadius: parseInt($("#glyph-radius").value, 10) || 1,
+    tryAllRotations: $("#opt-rotations").checked,
   }));
 
   $("#run-optimize").disabled = true;
@@ -65,44 +68,47 @@ function renderResult(out) {
     `<strong>Active boards:</strong> ${out.activeBoards.length} / ${out.ctx.chain.length}`;
   result.appendChild(head);
 
+  const rotLine = document.createElement("div");
+  rotLine.innerHTML = "<strong>Rotations:</strong> " +
+    out.rotations.map((q, i) => `#${i + 1}=${q * 90}°`).join(", ");
+  result.appendChild(rotLine);
+
   const statsDiv = document.createElement("div");
   statsDiv.innerHTML = "<strong>Stats:</strong> " +
     Object.entries(out.stats).map(([k, v]) => `${k}=${(+v).toFixed(2)}`).join(", ");
   result.appendChild(statsDiv);
 
   const apply = document.createElement("button");
-  apply.textContent = "Show on board editor";
+  apply.textContent = "Apply rotations to chain";
   apply.onclick = () => {
-    const map = {};
-    for (let bi = 0; bi < out.ctx.chain.length; bi++) {
-      const boardIdx = out.ctx.chain[bi];
-      map[boardIdx] = new Set(out.solution.activated[bi]);
-    }
-    boards.setActivatedOverlay(map);
-    // switch to boards tab
-    document.querySelector('.tab[data-tab="boards"]').click();
+    setState(st => {
+      const chain = st.chain.map((slot, i) => ({ ...slot, rotation: out.rotations[i] ?? slot.rotation }));
+      return { ...st, chain };
+    });
+    alert("Rotations applied. Open Boards tab to inspect.");
   };
   result.appendChild(apply);
 
-  // mini-render each board
+  // mini-render each rotated board with activations
   const state = getState();
   for (let bi = 0; bi < out.ctx.chain.length; bi++) {
-    const boardIdx = out.ctx.chain[bi];
-    const board = state.boards[boardIdx];
+    const slot = out.ctx.chain[bi];
+    const baseBoard = state.boards[slot.boardIndex];
+    const rotated = rotateBoard(baseBoard, out.rotations[bi] || 0);
     const act = out.solution.activated[bi];
     const wrap = document.createElement("div");
     wrap.className = "result-board";
     const h = document.createElement("h4");
-    h.textContent = `${bi + 1}. ${board.name} — ${act.size} pts` +
+    h.textContent = `${bi + 1}. ${baseBoard.name} — ${act.size} pts, rot ${out.rotations[bi] * 90}°` +
       (out.solution.glyphs[bi] ? ` (glyph: ${state.glyphs.find(g => g.id === out.solution.glyphs[bi])?.name})` : "");
     wrap.appendChild(h);
     const grid = document.createElement("div");
     grid.className = "grid";
     grid.style.setProperty("--node", "10px");
-    grid.style.gridTemplateColumns = `repeat(${board.size}, 10px)`;
-    for (let r = 0; r < board.size; r++) {
-      for (let c = 0; c < board.size; c++) {
-        const cell = board.cells[r][c];
+    grid.style.gridTemplateColumns = `repeat(${rotated.size}, 10px)`;
+    for (let r = 0; r < rotated.size; r++) {
+      for (let c = 0; c < rotated.size; c++) {
+        const cell = rotated.cells[r][c];
         const el = document.createElement("div");
         el.className = "cell " + cell.type;
         const k = r + "," + c;
@@ -123,6 +129,7 @@ function setupRunControls() {
   const s = getState();
   $("#point-budget").value = s.pointBudget;
   $("#glyph-radius").value = s.glyphRadius;
+  $("#opt-rotations").checked = !!s.tryAllRotations;
 }
 
 function setupDataTab() {
@@ -148,6 +155,7 @@ function setupDataTab() {
 }
 
 function rerender() {
+  library.render();
   boards.render();
   glyphs.render();
   damage.render();
@@ -156,6 +164,7 @@ function rerender() {
 
 function init() {
   setupTabs();
+  library.wireLibraryUI();
   boards.wireBoardEditor();
   glyphs.wireGlyphEditor();
   damage.wireDamageEditor();
