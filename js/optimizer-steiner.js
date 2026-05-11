@@ -76,6 +76,43 @@ function chooseClosestGate(gates, anchors, graph, size) {
   return best;
 }
 
+// Priority order for dropping terminals when over budget. Lower priority is
+// dropped first; chain-validity terminals (start, entry/exit gates) are never
+// in this map and are never dropped.
+const DROP_PRIORITY = { magic: 0, rare: 1, socket: 2, legendary: 3 };
+
+// Dreyfus-Wagner is exponential in the terminal count: O(3^k * V + 2^k * V^2).
+// For our boards (V ~75) it runs comfortably for k <= 10 (~1-2s); past that it
+// gets uncomfortable. We pre-shrink each board to this cap before solving.
+const MAX_TERMINALS_PER_BOARD = 10;
+
+/** Find the lowest-priority droppable terminal across all boards. Returns
+ *  `{ bi, key, type, label }` or null when nothing else can be dropped. */
+function findDroppable(slots, terminalsPerBoard) {
+  let best = null;
+  for (let bi = 0; bi < slots.length; bi++) {
+    const cand = findDroppableInBoard(slots[bi], terminalsPerBoard[bi]);
+    if (cand && (!best || cand.rank < best.rank)) best = { bi, ...cand };
+  }
+  return best;
+}
+
+function findDroppableInBoard(s, terms) {
+  let best = null;
+  for (const k of terms) {
+    if (k === s.startCell || k === s.entryGate || k === s.exitGate) continue;
+    const [r, c] = parseKey(k);
+    const cell = s.rotated.cells[r]?.[c];
+    const type = cell?.type;
+    if (!(type in DROP_PRIORITY)) continue;
+    const rank = DROP_PRIORITY[type];
+    if (!best || rank < best.rank) {
+      best = { key: k, type, label: cell?.label || cell?.nodeId || k, rank };
+    }
+  }
+  return best;
+}
+
 /** Build per-slot context (rotated board, graph, terminals, gates). */
 function buildSlot(state, bi) {
   const slot = state.chain[bi];
@@ -135,35 +172,65 @@ export function optimizeSteiner(state) {
     }
   }
 
-  // Solve per board
+  // Solve per board (first pass, with all required terminals)
   const activated = [];
   const perBoardCounts = [];
   const infeasibleBoards = [];
-  for (let bi = 0; bi < N; bi++) {
+  // Track terminals per board so we can drop them if the budget is too tight.
+  const terminalsPerBoard = slots.map(s => new Set([
+    s.startCell, s.socketCell, s.entryGate, s.exitGate, ...s.forced,
+  ].filter(Boolean)));
+
+  function recomputeBoard(bi) {
     const s = slots[bi];
-    const terms = new Set([
-      s.startCell,
-      s.socketCell,
-      s.entryGate,
-      s.exitGate,
-      ...s.forced,
-    ].filter(Boolean));
+    const terms = terminalsPerBoard[bi];
     if (terms.size === 0) {
-      activated.push(new Set());
-      perBoardCounts.push(0);
-      continue;
+      activated[bi] = new Set();
+      perBoardCounts[bi] = 0;
+      return;
     }
     const tree = steinerTree(s.graph, s.rotated.size, [...terms]);
     if (!tree) {
-      // Couldn't find a tree — terminals weren't all reachable. Treat as infeasible
-      // and put just the terminals so the user can see what was requested.
-      infeasibleBoards.push(bi);
+      if (!infeasibleBoards.includes(bi)) infeasibleBoards.push(bi);
       const fallback = new Set(terms);
-      activated.push(fallback);
-      perBoardCounts.push(fallback.size);
+      activated[bi] = fallback;
+      perBoardCounts[bi] = fallback.size;
     } else {
-      activated.push(tree);
-      perBoardCounts.push(tree.size);
+      activated[bi] = tree;
+      perBoardCounts[bi] = tree.size;
+      const idx = infeasibleBoards.indexOf(bi);
+      if (idx >= 0) infeasibleBoards.splice(idx, 1);
+    }
+  }
+
+  // Pre-shrink each board to at most MAX_TERMINALS_PER_BOARD before solving,
+  // otherwise Dreyfus-Wagner's O(3^k V) blows up.
+  const dropped = [];
+  for (let bi = 0; bi < N; bi++) {
+    while (terminalsPerBoard[bi].size > MAX_TERMINALS_PER_BOARD) {
+      const cand = findDroppableInBoard(slots[bi], terminalsPerBoard[bi]);
+      if (!cand) break;
+      terminalsPerBoard[bi].delete(cand.key);
+      dropped.push({ bi, ...cand, reason: "too-many-terminals" });
+    }
+    activated.push(null); perBoardCounts.push(0);
+    recomputeBoard(bi);
+  }
+
+  // Auto-shrink to fit the user's point budget. Drop required terminals in
+  // increasing priority — keep legendaries + glyph sockets + chain gates +
+  // start cell as long as possible; sacrifice magics first, then rares.
+  const budget = Math.max(0, state.pointBudget | 0);
+  if (budget > 0) {
+    let total = perBoardCounts.reduce((a, b) => a + b, 0);
+    let safety = 200; // hard cap on shrink iterations
+    while (total > budget && safety-- > 0) {
+      const cand = findDroppable(slots, terminalsPerBoard);
+      if (!cand) break; // nothing more we can drop
+      terminalsPerBoard[cand.bi].delete(cand.key);
+      dropped.push({ ...cand, reason: "budget" });
+      recomputeBoard(cand.bi);
+      total = perBoardCounts.reduce((a, b) => a + b, 0);
     }
   }
 
@@ -218,13 +285,17 @@ export function optimizeSteiner(state) {
 
   const totalPoints = perBoardCounts.reduce((a, b) => a + b, 0);
 
+  const overBudget = budget > 0 && totalPoints > budget;
   return {
     solution: { activated, glyphs, glyphSocket },
     totalPoints,
     perBoardCounts,
     activeBoards,
     infeasibleBoards,
-    missingRequired: 0,
+    dropped,                     // [{ bi, key, type, label }] — terminals removed to fit budget
+    overBudget,                  // true if still over budget after auto-shrink
+    pointBudget: budget,
+    missingRequired: dropped.length,
     score: -totalPoints, // for compatibility with display
     stats: collectStats(state, slots, activated),
     rotations: state.chain.map(s => s.rotation || 0),
