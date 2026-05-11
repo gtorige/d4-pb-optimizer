@@ -24,13 +24,14 @@
     <section id="tab-library" class="tab-panel active">
       <div class="library-head">
         <h2>Paragon library</h2>
-        <div class="warn">
-          ⚠ The bundled dataset is from
-          <a href="https://github.com/Lothrik/diablo4-build-calc" target="_blank" rel="noopener">Lothrik/diablo4-build-calc</a>
-          and predates <em>Vessel of Hatred</em> and <em>Lord of Hatred</em>. It does <strong>not</strong> include
-          Spiritborn, Paladin, or Warlock, and base-class boards may be out of date.
-          Use <em>Load dataset…</em> below to swap in a current JSON export (see <a href="https://github.com/gtorige/d4-pb-optimizer#dataset-schema" target="_blank">schema</a>).
-        </div>
+        <p class="hint">
+          Bundled data from
+          <a href="https://github.com/DiabloTools/d4data" target="_blank" rel="noopener">DiabloTools/d4data</a>
+          — datamined for the current Lord of Hatred / Season 13 build. Includes all 8 classes:
+          Barbarian, Druid, Necromancer, Sorcerer, Rogue, Paladin, Spiritborn, Warlock.
+          Board names are placeholders (Start / Board 1..N); use the mini-grid layout to identify boards.
+          You can swap in a different dataset with <em>Load dataset…</em>.
+        </p>
         <p class="hint">
           Pick a class, add up to 5 boards to your chain and pick glyphs. Each chain slot has its own
           rotation, Magic / Rare / Legendary filters, a pinned glyph, and a node-picker. Nodes you
