@@ -24,16 +24,27 @@
     <section id="tab-library" class="tab-panel active">
       <div class="library-head">
         <h2>Paragon library</h2>
+        <div class="warn">
+          ⚠ The bundled dataset is from
+          <a href="https://github.com/Lothrik/diablo4-build-calc" target="_blank" rel="noopener">Lothrik/diablo4-build-calc</a>
+          and predates <em>Vessel of Hatred</em> and <em>Lord of Hatred</em>. It does <strong>not</strong> include
+          Spiritborn, Paladin, or Warlock, and base-class boards may be out of date.
+          Use <em>Load dataset…</em> below to swap in a current JSON export (see <a href="https://github.com/gtorige/d4-pb-optimizer#dataset-schema" target="_blank">schema</a>).
+        </div>
         <p class="hint">
-          Bundled data from <a href="https://github.com/Lothrik/diablo4-build-calc" target="_blank" rel="noopener">Lothrik/diablo4-build-calc</a>
-          (datamined). Pick a class, add up to 5 boards to your chain and pick glyphs. Each chain slot
-          has its own rotation and Magic / Rare / Legendary filters.
+          Pick a class, add up to 5 boards to your chain and pick glyphs. Each chain slot has its own
+          rotation, Magic / Rare / Legendary filters, a pinned glyph, and a node-picker. Nodes you
+          explicitly check in <em>Pick nodes</em> are <strong>required</strong> — the optimizer must
+          route through them and prefers the shortest connecting path.
         </p>
         <div class="lib-class">
           <label>Class:
             <select id="lib-class"></select>
           </label>
           <label><input type="checkbox" id="lib-try-rotations" /> Optimizer may rotate boards (0/90/180/270)</label>
+          <button id="lib-load-dataset">Load dataset…</button>
+          <input id="lib-dataset-file" type="file" accept="application/json,.json" hidden />
+          <button id="lib-reset-dataset" title="Restore bundled dataset">Reset to bundled</button>
         </div>
       </div>
 
@@ -122,6 +133,7 @@
         <label>Start temp: <input id="sa-temp" type="number" min="0" value="2" step="0.1" /></label>
         <label>Seed: <input id="sa-seed" type="number" value="1" /></label>
         <label><input id="opt-rotations" type="checkbox" /> Try rotations</label>
+        <label><input id="opt-minpoints" type="checkbox" /> Minimize points</label>
         <button id="run-optimize">Run optimizer</button>
         <button id="stop-optimize" disabled>Stop</button>
       </div>

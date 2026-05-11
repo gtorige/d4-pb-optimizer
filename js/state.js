@@ -12,7 +12,13 @@ export function defaultFilters() {
 
 /** Default chain slot. */
 export function defaultChainSlot(boardIndex = 0) {
-  return { boardIndex, rotation: 0, filters: defaultFilters() };
+  return {
+    boardIndex,
+    rotation: 0,
+    filters: defaultFilters(),
+    pinnedGlyph: null,       // glyph id locked to this slot, or null = let optimizer choose
+    selectedNodes: {},       // per-cell overrides keyed by srcKey -> bool (true=include, false=exclude)
+  };
 }
 
 /** @returns {AppState} */
@@ -31,6 +37,7 @@ export function defaultState() {
     pointBudget: 225,
     glyphRadius: 4,
     tryAllRotations: true,
+    minimizePoints: false,
     selection: { boardIndex: 0, cell: null, glyphId: null },
   };
 }
@@ -72,6 +79,8 @@ export function migrate(s) {
       boardIndex: slot.boardIndex ?? 0,
       rotation: slot.rotation ?? 0,
       filters: { ...defaultFilters(), ...(slot.filters || {}) },
+      pinnedGlyph: slot.pinnedGlyph ?? null,
+      selectedNodes: { ...(slot.selectedNodes || {}) },
     };
   });
   if (!out.chain.length) out.chain = [defaultChainSlot(0)];
@@ -92,7 +101,7 @@ export function importState(json) {
 /** @typedef {{id:string, name:string, baseStats:Record<string,number>, perMagicStats:Record<string,number>, desc?:string, bonus?:string, threshold?:string}} Glyph */
 /** @typedef {{id:string, name:string, mode:"add"|"mult", stats:string[]}} Bucket */
 /** @typedef {{magic:boolean, rare:boolean, legendary:boolean, nodeOverrides:Record<string, "force"|"block">}} Filters */
-/** @typedef {{boardIndex:number, rotation:number, filters:Filters}} ChainSlot */
+/** @typedef {{boardIndex:number, rotation:number, filters:Filters, pinnedGlyph:string|null, selectedNodes:Record<string, boolean>}} ChainSlot */
 /** @typedef {{boards:Board[], chain:ChainSlot[], glyphs:Glyph[], buckets:Bucket[], baseValue:number, pointBudget:number, glyphRadius:number, tryAllRotations:boolean, selectedClass:string, selection:{boardIndex:number, cell:[number,number]|null, glyphId:string|null}}} AppState */
 
 export function makeBoard(name = "Board") {

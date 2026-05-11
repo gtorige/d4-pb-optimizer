@@ -92,6 +92,40 @@ Bundled paragon data is sourced from
 Localization is stripped to keep the bundle around 290 KB; only English text
 is retained.
 
+**The bundled dataset predates Vessel of Hatred and Lord of Hatred**, so it does
+not include Spiritborn, Paladin, or Warlock, and base-class boards may be out of
+date for Season 13. Use the Library tab's *Load dataset…* button to load a
+current JSON file.
+
+### Dataset schema
+
+The loader expects a JSON object keyed by class name (with an optional `Generic`
+entry holding shared node definitions). Each class entry looks like:
+
+```json
+{
+  "Barbarian": {
+    "boards": {
+      "Start":    [["", "Generic_Gate", ""], ... 21×21 grid of node-id strings],
+      "Hemorrhage": [...]
+    },
+    "nodes": {
+      "Barbarian_Legendary_001": { "name": "Crimson Violence", "desc": "..." }
+    },
+    "glyphs": {
+      "ParagonGlyph_011": { "name": "Imbiber", "desc": "...", "bonus": "...", "threshold": "25 Willpower" }
+    }
+  },
+  "Generic": { "nodes": { ... }, "glyphs": {}, "boards": {} }
+}
+```
+
+Node-id strings encode tier + type via convention:
+`<scope>_<tier>_<suffix>` where `tier` is one of
+`Normal | Magic | Rare | Legendary | Gate | Socket`. The optimizer's stat keys
+are derived from `<tier>_<suffix>`. The starter cell uses any id beginning with
+`StartNode`.
+
 ## Limitations
 
 - Gate directions are not strictly matched between boards (any activated gate

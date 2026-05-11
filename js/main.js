@@ -34,6 +34,7 @@ async function runOptimize() {
     pointBudget: parseInt($("#point-budget").value, 10) || 1,
     glyphRadius: parseInt($("#glyph-radius").value, 10) || 1,
     tryAllRotations: $("#opt-rotations").checked,
+    minimizePoints: $("#opt-minpoints").checked,
   }));
 
   $("#run-optimize").disabled = true;
@@ -46,7 +47,9 @@ async function runOptimize() {
       startTemp: parseFloat($("#sa-temp").value) || 1,
       seed: parseInt($("#sa-seed").value, 10) || 1,
       onProgress: (info) => {
-        status.textContent = `iter ${info.iter}  cur=${info.cur.toFixed(3)}  best=${info.best.toFixed(3)}  pts=${info.points}/${getState().pointBudget}  T=${info.temp.toFixed(3)}`;
+        let line = `iter ${info.iter}  cur=${info.cur.toFixed(3)}  best=${info.best.toFixed(3)}  pts=${info.points}/${getState().pointBudget}  T=${info.temp.toFixed(3)}`;
+        if (info.warning) line += `\n${info.warning}`;
+        status.textContent = line;
       },
       shouldStop: () => stopRequested,
     });
@@ -60,40 +63,144 @@ async function runOptimize() {
   }
 }
 
+function buildSummary(out) {
+  const state = getState();
+  const wrap = document.createElement("div");
+  wrap.className = "result-summary";
+
+  // 1. Stats grouped by category
+  const groups = { attr: {}, magic: {}, rare: {}, legendary: {}, glyph: {}, other: {} };
+  for (const [k, v] of Object.entries(out.stats)) {
+    if (!v) continue;
+    const prefix = k.split("_")[0];
+    const target = groups[prefix] || groups.other;
+    target[k] = v;
+  }
+  const statsSec = document.createElement("div");
+  statsSec.className = "result-section";
+  const sh = document.createElement("h4"); sh.textContent = "Stats by category"; statsSec.appendChild(sh);
+  for (const [name, obj] of Object.entries(groups)) {
+    const keys = Object.keys(obj);
+    if (!keys.length) continue;
+    const line = document.createElement("div");
+    line.className = "stats-line stats-" + name;
+    const total = Object.values(obj).reduce((a, b) => a + (+b || 0), 0);
+    line.innerHTML = `<strong>${name}</strong> (Σ ${total.toFixed(2)}): ` +
+      keys.map(k => `${k.replace(/^[a-z]+_/, "")}=${(+obj[k]).toFixed(2)}`).join(", ");
+    statsSec.appendChild(line);
+  }
+  wrap.appendChild(statsSec);
+
+  // 2. Activated nodes per board, grouped by tier, with their names
+  const tiersSec = document.createElement("div");
+  tiersSec.className = "result-section";
+  const th = document.createElement("h4"); th.textContent = "Activated nodes by board"; tiersSec.appendChild(th);
+  for (let bi = 0; bi < out.ctx.chain.length; bi++) {
+    const slot = out.ctx.chain[bi];
+    const boardIdx = out.order?.[bi] ?? slot.boardIndex;
+    const board = state.boards[boardIdx];
+    const rotatedCells = out.ctx.idx[bi].rotated?.cells || board.cells;
+    const act = out.solution.activated[bi];
+    const byTier = { legendary: [], rare: [], magic: [], socket: [], normal: [], gate: [], start: [] };
+    let totalNorm = 0;
+    for (const k of act) {
+      const [r, c] = k.split(",").map(Number);
+      const cell = rotatedCells[r]?.[c];
+      if (!cell) continue;
+      const label = cell.label || cell.nodeId || cell.type;
+      if (byTier[cell.type]) byTier[cell.type].push(label);
+      if (cell.type === "normal") totalNorm++;
+    }
+    const boardDiv = document.createElement("div");
+    boardDiv.className = "result-board-summary";
+    const head = document.createElement("div");
+    head.innerHTML = `<strong>${bi + 1}. ${board.name}</strong> — ${act.size} pts ` +
+      (slot.pinnedGlyph ? ` · glyph: ${state.glyphs.find(g => g.id === slot.pinnedGlyph)?.name ?? "?"}` :
+       out.solution.glyphs[bi] ? ` · glyph: ${state.glyphs.find(g => g.id === out.solution.glyphs[bi])?.name ?? "?"}` : "");
+    boardDiv.appendChild(head);
+
+    for (const tier of ["legendary", "rare", "magic"]) {
+      if (!byTier[tier].length) continue;
+      const counts = countLabels(byTier[tier]);
+      const line = document.createElement("div");
+      line.className = "tier-line tier-" + tier;
+      line.innerHTML = `<span class="tier-tag">${tier}</span> ` +
+        Object.entries(counts).map(([n, c]) => c > 1 ? `${n} ×${c}` : n).join(", ");
+      boardDiv.appendChild(line);
+    }
+    if (byTier.socket.length) {
+      const line = document.createElement("div");
+      line.className = "tier-line tier-socket";
+      line.innerHTML = `<span class="tier-tag">socket</span> ×${byTier.socket.length}`;
+      boardDiv.appendChild(line);
+    }
+    if (totalNorm) {
+      const line = document.createElement("div");
+      line.className = "tier-line tier-normal";
+      line.textContent = `normal nodes: ${totalNorm}`;
+      boardDiv.appendChild(line);
+    }
+    tiersSec.appendChild(boardDiv);
+  }
+  wrap.appendChild(tiersSec);
+
+  return wrap;
+}
+
+function countLabels(arr) {
+  const m = {};
+  for (const x of arr) m[x] = (m[x] || 0) + 1;
+  return m;
+}
+
 function renderResult(out) {
   const result = $("#run-result");
   result.innerHTML = "";
   const head = document.createElement("div");
   head.innerHTML = `<strong>Best score:</strong> ${out.score.toFixed(3)} &nbsp; ` +
+    `<strong>Points:</strong> ${out.totalPoints ?? "?"}/${out.ctx.pointBudget} &nbsp; ` +
     `<strong>Active boards:</strong> ${out.activeBoards.length} / ${out.ctx.chain.length}`;
   result.appendChild(head);
+  if (out.missingRequired) {
+    const warn = document.createElement("div");
+    warn.className = "warn";
+    warn.textContent = `⚠ ${out.missingRequired} required node(s) could not be routed — raise budget or check connectivity.`;
+    result.appendChild(warn);
+  }
 
-  const rotLine = document.createElement("div");
-  rotLine.innerHTML = "<strong>Rotations:</strong> " +
-    out.rotations.map((q, i) => `#${i + 1}=${q * 90}°`).join(", ");
-  result.appendChild(rotLine);
+  const state = getState();
+  const orderLine = document.createElement("div");
+  orderLine.innerHTML = "<strong>Order:</strong> " +
+    out.order.map((bi, i) => `${i + 1}. ${state.boards[bi]?.name ?? "?"} (rot ${(out.rotations[i] || 0) * 90}°)`).join(" → ");
+  result.appendChild(orderLine);
 
-  const statsDiv = document.createElement("div");
-  statsDiv.innerHTML = "<strong>Stats:</strong> " +
-    Object.entries(out.stats).map(([k, v]) => `${k}=${(+v).toFixed(2)}`).join(", ");
-  result.appendChild(statsDiv);
+  result.appendChild(buildSummary(out));
 
   const apply = document.createElement("button");
-  apply.textContent = "Apply rotations to chain";
+  apply.textContent = "Apply rotations + order to chain";
   apply.onclick = () => {
     setState(st => {
-      const chain = st.chain.map((slot, i) => ({ ...slot, rotation: out.rotations[i] ?? slot.rotation }));
+      const chain = out.order.map((bi, i) => {
+        // Find the slot in current state matching this board+rotation pairing.
+        // We keep the slot's filters/pinnedGlyph/selectedNodes from the prior slot
+        // at position `i` (so user-set per-slot settings stick to their slot index).
+        const prior = st.chain[i] || { filters: {}, selectedNodes: {}, pinnedGlyph: null };
+        return {
+          ...prior,
+          boardIndex: bi,
+          rotation: out.rotations[i] ?? 0,
+        };
+      });
       return { ...st, chain };
     });
-    alert("Rotations applied. Open Boards tab to inspect.");
+    alert("Rotations and order applied. Open Library/Boards tab to inspect.");
   };
   result.appendChild(apply);
 
   // mini-render each rotated board with activations
-  const state = getState();
   for (let bi = 0; bi < out.ctx.chain.length; bi++) {
-    const slot = out.ctx.chain[bi];
-    const baseBoard = state.boards[slot.boardIndex];
+    const boardIdx = out.order[bi] ?? out.ctx.chain[bi].boardIndex;
+    const baseBoard = state.boards[boardIdx];
     const rotated = rotateBoard(baseBoard, out.rotations[bi] || 0);
     const act = out.solution.activated[bi];
     const wrap = document.createElement("div");
@@ -130,6 +237,7 @@ function setupRunControls() {
   $("#point-budget").value = s.pointBudget;
   $("#glyph-radius").value = s.glyphRadius;
   $("#opt-rotations").checked = !!s.tryAllRotations;
+  $("#opt-minpoints").checked = !!s.minimizePoints;
 }
 
 function setupDataTab() {
